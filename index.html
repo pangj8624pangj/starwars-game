@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
 <title>Star Wars: A New Hope - The Game</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -18,11 +18,118 @@ body {
 canvas {
   border: 1px solid #333;
   image-rendering: pixelated;
+  max-width: 100vw;
+  max-height: 100vh;
 }
+#touch-controls {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+#touch-controls .btn {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.2);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#touch-controls .btn.active {
+  background: rgba(255,255,255,0.25);
+  border-color: rgba(255,255,255,0.5);
+}
+/* D-pad buttons */
+.dpad-left, .dpad-right {
+  width: 64px; height: 64px;
+  bottom: 30px;
+  font-size: 28px;
+}
+.dpad-left { left: 20px; }
+.dpad-right { left: 100px; }
+/* Jump button */
+.btn-jump {
+  width: 70px; height: 70px;
+  bottom: 100px; right: 20px;
+  font-size: 13px;
+  background: rgba(79,195,247,0.12) !important;
+  border-color: rgba(79,195,247,0.35) !important;
+}
+.btn-jump.active {
+  background: rgba(79,195,247,0.35) !important;
+}
+/* Attack button */
+.btn-attack {
+  width: 64px; height: 64px;
+  bottom: 25px; right: 100px;
+  font-size: 11px;
+  background: rgba(76,175,80,0.12) !important;
+  border-color: rgba(76,175,80,0.35) !important;
+}
+.btn-attack.active {
+  background: rgba(76,175,80,0.35) !important;
+}
+/* Block button */
+.btn-block {
+  width: 56px; height: 56px;
+  bottom: 25px; right: 20px;
+  font-size: 10px;
+  background: rgba(255,193,7,0.12) !important;
+  border-color: rgba(255,193,7,0.35) !important;
+}
+.btn-block.active {
+  background: rgba(255,193,7,0.35) !important;
+}
+/* Force buttons row */
+.btn-push, .btn-pull, .btn-speed {
+  width: 48px; height: 48px;
+  font-size: 9px;
+}
+.btn-push {
+  bottom: 105px; right: 100px;
+  background: rgba(123,31,162,0.12) !important;
+  border-color: rgba(123,31,162,0.4) !important;
+}
+.btn-push.active { background: rgba(123,31,162,0.4) !important; }
+.btn-pull {
+  bottom: 160px; right: 55px;
+  background: rgba(79,195,247,0.12) !important;
+  border-color: rgba(79,195,247,0.4) !important;
+}
+.btn-pull.active { background: rgba(79,195,247,0.4) !important; }
+.btn-speed {
+  bottom: 160px; right: 115px;
+  background: rgba(255,109,0,0.12) !important;
+  border-color: rgba(255,109,0,0.4) !important;
+}
+.btn-speed.active { background: rgba(255,109,0,0.4) !important; }
 </style>
 </head>
 <body>
 <canvas id="game" width="960" height="540"></canvas>
+<div id="touch-controls">
+  <div class="btn dpad-left" data-key="ArrowLeft">&#9664;</div>
+  <div class="btn dpad-right" data-key="ArrowRight">&#9654;</div>
+  <div class="btn btn-jump" data-key="Space">JUMP</div>
+  <div class="btn btn-attack" data-key="KeyZ">ATK</div>
+  <div class="btn btn-block" data-key="KeyA">BLK</div>
+  <div class="btn btn-push" data-key="KeyX">PUSH</div>
+  <div class="btn btn-pull" data-key="KeyC">PULL</div>
+  <div class="btn btn-speed" data-key="KeyS">SPD</div>
+</div>
 <script>
 // ============================================================
 // STAR WARS: A NEW HOPE — THE GAME
@@ -473,6 +580,98 @@ window.addEventListener('keydown', e => {
   }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ============================================================
+// TOUCH CONTROLS
+// ============================================================
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const touchControls = document.getElementById('touch-controls');
+
+if (isTouchDevice) {
+  touchControls.style.display = 'block';
+  document.body.style.touchAction = 'none';
+}
+
+// Map touch events on buttons to key states
+const touchButtons = document.querySelectorAll('#touch-controls .btn');
+const activeTouches = new Map(); // touchId -> button element
+
+function getTouchTarget(touch) {
+  return document.elementFromPoint(touch.clientX, touch.clientY);
+}
+
+function pressButton(btn) {
+  if (!btn || !btn.dataset.key) return;
+  keys[btn.dataset.key] = true;
+  btn.classList.add('active');
+}
+
+function releaseButton(btn) {
+  if (!btn || !btn.dataset.key) return;
+  keys[btn.dataset.key] = false;
+  btn.classList.remove('active');
+}
+
+touchButtons.forEach(btn => {
+  btn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      activeTouches.set(touch.identifier, btn);
+      pressButton(btn);
+    }
+  }, { passive: false });
+});
+
+document.addEventListener('touchmove', e => {
+  for (const touch of e.changedTouches) {
+    const oldBtn = activeTouches.get(touch.identifier);
+    const newEl = getTouchTarget(touch);
+    const newBtn = newEl && newEl.closest('.btn');
+    if (newBtn !== oldBtn) {
+      if (oldBtn) releaseButton(oldBtn);
+      if (newBtn && newBtn.dataset.key) {
+        activeTouches.set(touch.identifier, newBtn);
+        pressButton(newBtn);
+      } else {
+        activeTouches.delete(touch.identifier);
+      }
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  for (const touch of e.changedTouches) {
+    const btn = activeTouches.get(touch.identifier);
+    if (btn) releaseButton(btn);
+    activeTouches.delete(touch.identifier);
+  }
+}, { passive: true });
+
+document.addEventListener('touchcancel', e => {
+  for (const touch of e.changedTouches) {
+    const btn = activeTouches.get(touch.identifier);
+    if (btn) releaseButton(btn);
+    activeTouches.delete(touch.identifier);
+  }
+}, { passive: true });
+
+// Tap on canvas to start/restart (for touch devices)
+canvas.addEventListener('touchstart', e => {
+  if (gameState === 'start' || gameState === 'gameover' || gameState === 'victory') {
+    e.preventDefault();
+    if (gameState === 'start') {
+      initAudio();
+      gameState = 'playing';
+      initGame();
+      playImperialMarch();
+    } else {
+      stopImperialMarch();
+      gameState = 'playing';
+      initGame();
+      playImperialMarch();
+    }
+  }
+}, { passive: false });
 
 // ============================================================
 // GAME STATE
@@ -2692,7 +2891,9 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.font = '10px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('\u2190\u2192 Move | Space Jump | Z Attack | A Block | X Push | C Pull | S Speed', W / 2, H - 10);
+  if (!isTouchDevice) {
+    ctx.fillText('\u2190\u2192 Move | Space Jump | Z Attack | A Block | X Push | C Pull | S Speed', W / 2, H - 10);
+  }
   ctx.textAlign = 'left';
 
   // Checkpoint text
@@ -2773,7 +2974,7 @@ function drawStartScreen() {
   ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
   ctx.fillStyle = '#FFF';
   ctx.font = '18px Arial';
-  ctx.fillText('Press ENTER to Begin', W / 2, 440);
+  ctx.fillText(isTouchDevice ? 'Tap to Begin' : 'Press ENTER to Begin', W / 2, 440);
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
 }
@@ -2797,7 +2998,7 @@ function drawGameOverScreen() {
   ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
   ctx.fillStyle = '#FFF';
   ctx.font = '18px Arial';
-  ctx.fillText('Press ENTER to Retry', W / 2, 380);
+  ctx.fillText(isTouchDevice ? 'Tap to Retry' : 'Press ENTER to Retry', W / 2, 380);
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
 }
@@ -2829,7 +3030,7 @@ function drawVictoryScreen() {
   ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
   ctx.fillStyle = '#FFF';
   ctx.font = '18px Arial';
-  ctx.fillText('Press ENTER to Play Again', W / 2, 440);
+  ctx.fillText(isTouchDevice ? 'Tap to Play Again' : 'Press ENTER to Play Again', W / 2, 440);
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
 }
