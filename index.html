@@ -480,11 +480,42 @@ function updateProjectiles() {
       continue;
     }
     // Check platform collision
+    let removed = false;
     for (const plat of platforms) {
       if (plat.type === 'wall' && p.x > plat.x && p.x < plat.x + plat.w &&
           p.y > plat.y && p.y < plat.y + plat.h) {
         projectiles.splice(i, 1);
+        removed = true;
         break;
+      }
+    }
+    if (removed) continue;
+
+    // Player-owned projectiles hit enemies and Vader
+    if (p.owner === 'player') {
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        if (!e.alive || e.dying) continue;
+        if (p.x > e.x && p.x < e.x + e.w && p.y > e.y && p.y < e.y + e.h) {
+          damageEnemy(e, p.damage);
+          spawnParticles(p.x, p.y, '#4FC3F7', 6, 3);
+          projectiles.splice(i, 1);
+          removed = true;
+          break;
+        }
+      }
+      if (removed) continue;
+      if (vader && vader.alive && !vader.dying) {
+        if (p.x > vader.x && p.x < vader.x + vader.w && p.y > vader.y && p.y < vader.y + vader.h) {
+          if (!vader.blocking) {
+            damageVader(p.damage);
+          } else {
+            spawnParticles(p.x, p.y, '#FF1744', 4, 2);
+            playSound('parry');
+          }
+          projectiles.splice(i, 1);
+          continue;
+        }
       }
     }
   }
@@ -692,7 +723,9 @@ function updateLuke() {
       // Block check (A key)
       } else if (luke.blocking) {
         p.vx = -p.vx * 1.2;
+        p.vy = (Math.random() - 0.5) * 0.5;
         p.owner = 'player';
+        p.startX = p.x;
         p.damage = Math.floor(p.damage * 1.5);
         p.color = '#4FC3F7';
         spawnParticles(p.x, p.y, '#4FC3F7', 6, 3);
