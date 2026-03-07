@@ -586,19 +586,7 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 // ============================================================
 const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 const touchControls = document.getElementById('touch-controls');
-
-if (isTouchDevice) {
-  touchControls.style.display = 'block';
-  document.body.style.touchAction = 'none';
-}
-
-// Map touch events on buttons to key states
-const touchButtons = document.querySelectorAll('#touch-controls .btn');
 const activeTouches = new Map(); // touchId -> button element
-
-function getTouchTarget(touch) {
-  return document.elementFromPoint(touch.clientX, touch.clientY);
-}
 
 function pressButton(btn) {
   if (!btn || !btn.dataset.key) return;
@@ -612,67 +600,66 @@ function releaseButton(btn) {
   btn.classList.remove('active');
 }
 
-touchButtons.forEach(btn => {
-  btn.addEventListener('touchstart', e => {
-    e.preventDefault();
-    for (const touch of e.changedTouches) {
-      activeTouches.set(touch.identifier, btn);
-      pressButton(btn);
-    }
-  }, { passive: false });
-});
+function releaseAllTouches() {
+  activeTouches.forEach(btn => releaseButton(btn));
+  activeTouches.clear();
+}
 
-document.addEventListener('touchmove', e => {
-  for (const touch of e.changedTouches) {
-    const oldBtn = activeTouches.get(touch.identifier);
-    const newEl = getTouchTarget(touch);
-    const newBtn = newEl && newEl.closest('.btn');
-    if (newBtn !== oldBtn) {
-      if (oldBtn) releaseButton(oldBtn);
-      if (newBtn && newBtn.dataset.key) {
-        activeTouches.set(touch.identifier, newBtn);
-        pressButton(newBtn);
-      } else {
-        activeTouches.delete(touch.identifier);
+if (isTouchDevice) {
+  touchControls.style.display = 'block';
+  document.body.style.touchAction = 'none';
+
+  const touchButtons = document.querySelectorAll('#touch-controls .btn');
+
+  touchButtons.forEach(btn => {
+    btn.addEventListener('touchstart', e => {
+      e.preventDefault();
+      for (const touch of e.changedTouches) {
+        activeTouches.set(touch.identifier, btn);
+        pressButton(btn);
+      }
+    }, { passive: false });
+  });
+
+  function handleTouchRelease(e) {
+    for (const touch of e.changedTouches) {
+      const btn = activeTouches.get(touch.identifier);
+      if (btn) releaseButton(btn);
+      activeTouches.delete(touch.identifier);
+    }
+  }
+
+  document.addEventListener('touchmove', e => {
+    for (const touch of e.changedTouches) {
+      const oldBtn = activeTouches.get(touch.identifier);
+      const newEl = document.elementFromPoint(touch.clientX, touch.clientY);
+      const newBtn = newEl && newEl.closest('.btn');
+      if (newBtn !== oldBtn) {
+        if (oldBtn) releaseButton(oldBtn);
+        if (newBtn && newBtn.dataset.key) {
+          activeTouches.set(touch.identifier, newBtn);
+          pressButton(newBtn);
+        } else {
+          activeTouches.delete(touch.identifier);
+        }
       }
     }
-  }
-}, { passive: true });
+  }, { passive: true });
 
-document.addEventListener('touchend', e => {
-  for (const touch of e.changedTouches) {
-    const btn = activeTouches.get(touch.identifier);
-    if (btn) releaseButton(btn);
-    activeTouches.delete(touch.identifier);
-  }
-}, { passive: true });
+  document.addEventListener('touchend', handleTouchRelease, { passive: true });
+  document.addEventListener('touchcancel', handleTouchRelease, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) releaseAllTouches();
+  });
 
-document.addEventListener('touchcancel', e => {
-  for (const touch of e.changedTouches) {
-    const btn = activeTouches.get(touch.identifier);
-    if (btn) releaseButton(btn);
-    activeTouches.delete(touch.identifier);
-  }
-}, { passive: true });
-
-// Tap on canvas to start/restart (for touch devices)
-canvas.addEventListener('touchstart', e => {
-  if (gameState === 'start' || gameState === 'gameover' || gameState === 'victory') {
-    e.preventDefault();
-    if (gameState === 'start') {
-      initAudio();
-      gameState = 'playing';
-      initGame();
-      playImperialMarch();
-    } else {
-      stopImperialMarch();
-      gameState = 'playing';
-      initGame();
-      playImperialMarch();
+  // Tap on canvas to start/restart
+  canvas.addEventListener('touchstart', e => {
+    if (gameState === 'start' || gameState === 'gameover' || gameState === 'victory') {
+      e.preventDefault();
+      startOrRestartGame();
     }
-  }
-}, { passive: false });
-
+  }, { passive: false });
+}
 // ============================================================
 // GAME STATE
 // ============================================================
@@ -3148,21 +3135,23 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
+// Shared game start/restart logic
+function startOrRestartGame() {
+  if (gameState === 'start') {
+    initAudio();
+  } else if (gameState === 'gameover' || gameState === 'victory') {
+    stopImperialMarch();
+  } else {
+    return;
+  }
+  gameState = 'playing';
+  initGame();
+  playImperialMarch();
+}
+
 // Input handler for screens
 window.addEventListener('keydown', e => {
-  if (e.code === 'Enter') {
-    if (gameState === 'start') {
-      initAudio();
-      gameState = 'playing';
-      initGame();
-      playImperialMarch();
-    } else if (gameState === 'gameover' || gameState === 'victory') {
-      stopImperialMarch();
-      gameState = 'playing';
-      initGame();
-      playImperialMarch();
-    }
-  }
+  if (e.code === 'Enter') startOrRestartGame();
 });
 
 // Start
