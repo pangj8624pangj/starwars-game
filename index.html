@@ -32,7 +32,7 @@ canvas {
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = 960, H = 540;
-const LEVEL_WIDTH = 8000;
+const LEVEL_WIDTH = 14000;
 const GRAVITY = 0.6;
 const FRICTION = 0.85;
 
@@ -44,12 +44,90 @@ let masterGain = null;
 let saberHumOsc = null;
 let saberHumGain = null;
 
+let marchPlaying = false;
+let marchInterval = null;
+
 function initAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.3;
   masterGain.connect(audioCtx.destination);
+}
+
+// Imperial March - synthesized background music
+function playImperialMarch() {
+  if (!audioCtx || marchPlaying) return;
+  marchPlaying = true;
+  // Imperial March melody notes (frequency, duration, startBeat)
+  const tempo = 0.45; // seconds per beat
+  const melody = [
+    // Main theme phrase 1
+    {f: 392, d: 1}, {f: 392, d: 1}, {f: 392, d: 1},
+    {f: 311, d: 0.75}, {f: 466, d: 0.25},
+    {f: 392, d: 1}, {f: 311, d: 0.75}, {f: 466, d: 0.25},
+    {f: 392, d: 2},
+    // Phrase 2
+    {f: 587, d: 1}, {f: 587, d: 1}, {f: 587, d: 1},
+    {f: 622, d: 0.75}, {f: 466, d: 0.25},
+    {f: 370, d: 1}, {f: 311, d: 0.75}, {f: 466, d: 0.25},
+    {f: 392, d: 2},
+    // Phrase 3
+    {f: 784, d: 1}, {f: 392, d: 0.75}, {f: 392, d: 0.25},
+    {f: 784, d: 1}, {f: 740, d: 0.75}, {f: 698, d: 0.25},
+    {f: 659, d: 0.25}, {f: 622, d: 0.25}, {f: 659, d: 0.5},
+    {f: 0, d: 0.5}, {f: 415, d: 0.5}, {f: 554, d: 1},
+    {f: 523, d: 0.75}, {f: 494, d: 0.25},
+    {f: 466, d: 0.25}, {f: 440, d: 0.25}, {f: 466, d: 0.5},
+    {f: 0, d: 0.5}, {f: 311, d: 0.5},
+    // Phrase 4
+    {f: 370, d: 1}, {f: 311, d: 0.75}, {f: 392, d: 0.25},
+    {f: 466, d: 1}, {f: 392, d: 0.75}, {f: 466, d: 0.25},
+    {f: 587, d: 2}
+  ];
+
+  function playMelodyOnce(startTime) {
+    let t = startTime;
+    melody.forEach(note => {
+      if (note.f > 0) {
+        // Main voice
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'square';
+        o.frequency.value = note.f;
+        g.gain.setValueAtTime(0.06, t);
+        g.gain.setValueAtTime(0.06, t + note.d * tempo - 0.05);
+        g.gain.linearRampToValueAtTime(0, t + note.d * tempo);
+        o.connect(g); g.connect(masterGain);
+        o.start(t); o.stop(t + note.d * tempo);
+        // Harmony voice (one octave lower, quieter)
+        const o2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        o2.type = 'triangle';
+        o2.frequency.value = note.f / 2;
+        g2.gain.setValueAtTime(0.03, t);
+        g2.gain.setValueAtTime(0.03, t + note.d * tempo - 0.05);
+        g2.gain.linearRampToValueAtTime(0, t + note.d * tempo);
+        o2.connect(g2); g2.connect(masterGain);
+        o2.start(t); o2.stop(t + note.d * tempo);
+      }
+      t += note.d * tempo;
+    });
+    return t; // return end time
+  }
+
+  function loopMarch() {
+    const now = audioCtx.currentTime;
+    const endTime = playMelodyOnce(now + 0.1);
+    const duration = (endTime - now - 0.1) * 1000;
+    marchInterval = setTimeout(loopMarch, duration + 500);
+  }
+  loopMarch();
+}
+
+function stopImperialMarch() {
+  marchPlaying = false;
+  if (marchInterval) { clearTimeout(marchInterval); marchInterval = null; }
 }
 
 function startSaberHum() {
@@ -77,39 +155,72 @@ function playSound(type) {
   const now = audioCtx.currentTime;
   switch (type) {
     case 'swing': {
+      // Lightsaber swing - wooshy, resonant
       const o = audioCtx.createOscillator();
+      const o2 = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'sawtooth';
-      o.frequency.setValueAtTime(200, now);
-      o.frequency.exponentialRampToValueAtTime(600, now + 0.1);
-      g.gain.setValueAtTime(0.15, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-      o.connect(g); g.connect(masterGain);
-      o.start(now); o.stop(now + 0.15);
+      o2.type = 'sine';
+      o.frequency.setValueAtTime(180, now);
+      o.frequency.exponentialRampToValueAtTime(500, now + 0.08);
+      o.frequency.exponentialRampToValueAtTime(250, now + 0.2);
+      o2.frequency.setValueAtTime(120, now);
+      o2.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+      g.gain.setValueAtTime(0.18, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      o.connect(g); o2.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.25);
+      o2.start(now); o2.stop(now + 0.25);
+      // Add noise burst for whoosh
+      const bufferSize = audioCtx.sampleRate * 0.15;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let j = 0; j < bufferSize; j++) data[j] = (Math.random() * 2 - 1) * 0.3;
+      const noise = audioCtx.createBufferSource();
+      const ng = audioCtx.createGain();
+      const nf = audioCtx.createBiquadFilter();
+      noise.buffer = buffer;
+      nf.type = 'bandpass'; nf.frequency.value = 800; nf.Q.value = 1;
+      ng.gain.setValueAtTime(0.08, now);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      noise.connect(nf); nf.connect(ng); ng.connect(masterGain);
+      noise.start(now); noise.stop(now + 0.15);
       break;
     }
     case 'laser': {
+      // Blaster bolt - classic pew pew
       const o = audioCtx.createOscillator();
+      const o2 = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'square';
-      o.frequency.setValueAtTime(900, now);
-      o.frequency.exponentialRampToValueAtTime(200, now + 0.15);
-      g.gain.setValueAtTime(0.1, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-      o.connect(g); g.connect(masterGain);
-      o.start(now); o.stop(now + 0.15);
+      o2.type = 'sine';
+      o.frequency.setValueAtTime(1200, now);
+      o.frequency.exponentialRampToValueAtTime(150, now + 0.2);
+      o2.frequency.setValueAtTime(800, now);
+      o2.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+      g.gain.setValueAtTime(0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      o.connect(g); o2.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.2);
+      o2.start(now); o2.stop(now + 0.2);
       break;
     }
     case 'hit': {
+      // Impact with bass thump
       const o = audioCtx.createOscillator();
+      const o2 = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'sine';
-      o.frequency.setValueAtTime(80, now);
-      o.frequency.exponentialRampToValueAtTime(40, now + 0.2);
-      g.gain.setValueAtTime(0.2, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-      o.connect(g); g.connect(masterGain);
-      o.start(now); o.stop(now + 0.2);
+      o.frequency.setValueAtTime(100, now);
+      o.frequency.exponentialRampToValueAtTime(30, now + 0.25);
+      o2.type = 'sawtooth';
+      o2.frequency.setValueAtTime(200, now);
+      o2.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+      g.gain.setValueAtTime(0.22, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      o.connect(g); o2.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.25);
+      o2.start(now); o2.stop(now + 0.25);
       break;
     }
     case 'jump': {
@@ -164,15 +275,40 @@ function playSound(type) {
       break;
     }
     case 'forcePush': {
+      // Deep whoosh with harmonic sweep
       const o = audioCtx.createOscillator();
+      const o2 = audioCtx.createOscillator();
+      const o3 = audioCtx.createOscillator();
       const g = audioCtx.createGain();
       o.type = 'sine';
-      o.frequency.setValueAtTime(150, now);
-      o.frequency.exponentialRampToValueAtTime(50, now + 0.3);
-      g.gain.setValueAtTime(0.15, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-      o.connect(g); g.connect(masterGain);
-      o.start(now); o.stop(now + 0.3);
+      o.frequency.setValueAtTime(200, now);
+      o.frequency.exponentialRampToValueAtTime(40, now + 0.5);
+      o2.type = 'triangle';
+      o2.frequency.setValueAtTime(400, now);
+      o2.frequency.exponentialRampToValueAtTime(60, now + 0.4);
+      o3.type = 'sawtooth';
+      o3.frequency.setValueAtTime(80, now);
+      o3.frequency.exponentialRampToValueAtTime(25, now + 0.6);
+      g.gain.setValueAtTime(0.18, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      o.connect(g); o2.connect(g); o3.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.6);
+      o2.start(now); o2.stop(now + 0.5);
+      o3.start(now); o3.stop(now + 0.6);
+      // Noise burst for whoosh effect
+      const bufferSize = audioCtx.sampleRate * 0.3;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let j = 0; j < bufferSize; j++) data[j] = (Math.random() * 2 - 1) * 0.4;
+      const noise = audioCtx.createBufferSource();
+      const ng = audioCtx.createGain();
+      const nf = audioCtx.createBiquadFilter();
+      noise.buffer = buffer;
+      nf.type = 'lowpass'; nf.frequency.setValueAtTime(2000, now); nf.frequency.exponentialRampToValueAtTime(100, now + 0.4);
+      ng.gain.setValueAtTime(0.1, now);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      noise.connect(nf); nf.connect(ng); ng.connect(masterGain);
+      noise.start(now); noise.stop(now + 0.4);
       break;
     }
   }
@@ -236,27 +372,47 @@ function buildLevel() {
   // Ground floor: runs the entire level
   platforms.push({ x: 0, y: H - 40, w: LEVEL_WIDTH, h: 40, type: 'ground' });
 
-  // Section 1 (0-2000): Corridor - flat ground, walls
+  // Section 1 (0-2500): Corridor - flat ground, walls, intro area
   platforms.push({ x: 0, y: 0, w: 20, h: H, type: 'wall' });
 
-  // Section 2 (2000-4500): Platforms
-  platforms.push({ x: 2100, y: H - 140, w: 200, h: 20, type: 'platform' });
-  platforms.push({ x: 2450, y: H - 220, w: 200, h: 20, type: 'platform' });
-  platforms.push({ x: 2800, y: H - 160, w: 200, h: 20, type: 'platform' });
-  platforms.push({ x: 3100, y: H - 260, w: 220, h: 20, type: 'platform' });
-  platforms.push({ x: 3450, y: H - 180, w: 200, h: 20, type: 'platform' });
-  platforms.push({ x: 3750, y: H - 240, w: 200, h: 20, type: 'platform' });
-  platforms.push({ x: 4050, y: H - 140, w: 200, h: 20, type: 'platform' });
+  // Section 2 (2500-5000): Platforms - expanded
+  platforms.push({ x: 2600, y: H - 140, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 2950, y: H - 220, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 3300, y: H - 160, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 3600, y: H - 260, w: 220, h: 20, type: 'platform' });
+  platforms.push({ x: 3950, y: H - 180, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 4250, y: H - 240, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 4550, y: H - 140, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 4800, y: H - 300, w: 180, h: 20, type: 'platform' });
 
-  // Section 3 (4500-6000): Turret Alley
+  // Section 3 (5000-7000): Corridor 2 - more ground enemies
+  platforms.push({ x: 5500, y: H - 140, w: 160, h: 20, type: 'platform' });
+  platforms.push({ x: 5900, y: H - 200, w: 160, h: 20, type: 'platform' });
+  platforms.push({ x: 6300, y: H - 160, w: 160, h: 20, type: 'platform' });
 
-  // Section 4 (6000-8000): Boss Arena
-  platforms.push({ x: 6000, y: 0, w: 20, h: H - 40, type: 'wall' });
+  // Section 4 (7000-9500): Turret Alley - expanded
+  platforms.push({ x: 7400, y: H - 140, w: 180, h: 20, type: 'platform' });
+  platforms.push({ x: 7800, y: H - 200, w: 180, h: 20, type: 'platform' });
+  platforms.push({ x: 8400, y: H - 160, w: 180, h: 20, type: 'platform' });
+  platforms.push({ x: 8800, y: H - 220, w: 180, h: 20, type: 'platform' });
+
+  // Section 5 (9500-10500): Gauntlet - dense enemies
+  platforms.push({ x: 9700, y: H - 140, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 10000, y: H - 220, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 10300, y: H - 160, w: 200, h: 20, type: 'platform' });
+
+  // Section 6 (10500-14000): Boss Arena
+  platforms.push({ x: 10500, y: 0, w: 20, h: H - 40, type: 'wall' });
+  // Boss arena platforms for more dynamic fight
+  platforms.push({ x: 11000, y: H - 160, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 12000, y: H - 160, w: 200, h: 20, type: 'platform' });
 
   // Checkpoints
   checkpoints = [
-    { x: 2000, triggered: false },
-    { x: 6000, triggered: false }
+    { x: 2500, triggered: false },
+    { x: 5000, triggered: false },
+    { x: 7000, triggered: false },
+    { x: 10500, triggered: false }
   ];
 }
 
@@ -369,7 +525,7 @@ function createLuke() {
     idleTimer: 0,
     checkpointX: 80,
     checkpointY: H - 100,
-    sectionDamage: [false, false, false, false], // track damage per section
+    sectionDamage: [false, false, false, false, false, false], // track damage per section
     dead: false,
     deathTimer: 0
   };
@@ -384,6 +540,7 @@ function updateLuke() {
         gameState = 'gameover';
         gameEndTime = Date.now();
         stopSaberHum();
+        stopImperialMarch();
         return;
       }
       luke.hp = luke.maxHp;
@@ -550,7 +707,7 @@ function updateLuke() {
   }
 
   // Section tracking for no-damage bonus
-  const section = luke.x < 2000 ? 0 : luke.x < 4500 ? 1 : luke.x < 6000 ? 2 : 3;
+  const section = luke.x < 2500 ? 0 : luke.x < 5000 ? 1 : luke.x < 7000 ? 2 : luke.x < 9500 ? 3 : luke.x < 10500 ? 4 : 5;
   luke.currentSection = section;
 }
 
@@ -563,8 +720,8 @@ function damageLuke(amount) {
   screenShakeIntensity = 4;
   playSound('hit');
   // Track section damage
-  const section = luke.x < 2000 ? 0 : luke.x < 4500 ? 1 : luke.x < 6000 ? 2 : 3;
-  luke.sectionDamage[section] = true;
+  const section = luke.x < 2500 ? 0 : luke.x < 5000 ? 1 : luke.x < 7000 ? 2 : luke.x < 9500 ? 3 : luke.x < 10500 ? 4 : 5;
+  if (section < luke.sectionDamage.length) luke.sectionDamage[section] = true;
 
   if (luke.hp <= 0) {
     luke.hp = 0;
@@ -651,6 +808,28 @@ function drawLuke() {
   ctx.fillStyle = '#333';
   ctx.fillRect(-4, 5, 3, 3);
   ctx.fillRect(1, 5, 3, 3);
+  // Eye whites
+  ctx.fillStyle = '#FFF';
+  ctx.fillRect(-4, 5, 2, 2);
+  ctx.fillRect(1, 5, 2, 2);
+  // Eyebrows
+  ctx.fillStyle = '#6D4C41';
+  ctx.fillRect(-5, 3, 4, 1);
+  ctx.fillRect(1, 3, 4, 1);
+
+  // Nose
+  ctx.fillStyle = '#E8B89D';
+  ctx.fillRect(-1, 7, 2, 2);
+
+  // Mouth
+  ctx.fillStyle = '#C97060';
+  ctx.fillRect(-3, 10, 6, 2);
+  // Upper lip line
+  ctx.fillStyle = '#B05050';
+  ctx.fillRect(-3, 10, 6, 1);
+  // Lower lip highlight
+  ctx.fillStyle = '#D08878';
+  ctx.fillRect(-2, 11, 4, 1);
 
   // Lightsaber
   const saberGlow = luke.attacking ? 1 : 0.6;
@@ -695,25 +874,52 @@ let enemies = [];
 
 function spawnEnemies() {
   enemies = [];
-  // Section 1: 3 stormtroopers on ground
+  // Section 1 (0-2500): Corridor stormtroopers
   enemies.push(createStormtrooper(400, H - 88, 350, 550));
-  enemies.push(createStormtrooper(900, H - 88, 800, 1100));
-  enemies.push(createStormtrooper(1500, H - 88, 1400, 1800));
+  enemies.push(createStormtrooper(800, H - 88, 700, 1000));
+  enemies.push(createStormtrooper(1200, H - 88, 1100, 1400));
+  enemies.push(createStormtrooper(1700, H - 88, 1600, 1900));
+  enemies.push(createStormtrooper(2100, H - 88, 2000, 2400));
 
-  // Section 2: 2 per platform (some on ground between platforms)
-  enemies.push(createStormtrooper(2150, H - 188, 2100, 2280));
-  enemies.push(createStormtrooper(2220, H - 188, 2100, 2280));
-  enemies.push(createStormtrooper(2500, H - 268, 2450, 2630));
-  enemies.push(createStormtrooper(2850, H - 208, 2800, 2980));
-  enemies.push(createStormtrooper(3150, H - 308, 3100, 3300));
-  enemies.push(createStormtrooper(3500, H - 228, 3450, 3630));
-  enemies.push(createStormtrooper(3800, H - 288, 3750, 3930));
-  enemies.push(createStormtrooper(4100, H - 88, 4000, 4300));
-  enemies.push(createStormtrooper(4400, H - 88, 4300, 4490));
+  // Section 2 (2500-5000): Platform stormtroopers
+  enemies.push(createStormtrooper(2650, H - 188, 2600, 2780));
+  enemies.push(createStormtrooper(2720, H - 188, 2600, 2780));
+  enemies.push(createStormtrooper(3000, H - 268, 2950, 3130));
+  enemies.push(createStormtrooper(3350, H - 208, 3300, 3480));
+  enemies.push(createStormtrooper(3650, H - 308, 3600, 3800));
+  enemies.push(createStormtrooper(4000, H - 228, 3950, 4130));
+  enemies.push(createStormtrooper(4300, H - 288, 4250, 4430));
+  enemies.push(createStormtrooper(4600, H - 88, 4500, 4740));
+  enemies.push(createStormtrooper(4850, H - 348, 4800, 4960));
 
-  // Turrets in Section 3
-  enemies.push(createTurret(4800, H - 80));
-  enemies.push(createTurret(5400, H - 80));
+  // Section 3 (5000-7000): Corridor 2 - more troopers + turrets
+  enemies.push(createStormtrooper(5100, H - 88, 5000, 5300));
+  enemies.push(createStormtrooper(5400, H - 88, 5300, 5600));
+  enemies.push(createStormtrooper(5550, H - 188, 5500, 5640));
+  enemies.push(createStormtrooper(5950, H - 248, 5900, 6040));
+  enemies.push(createStormtrooper(6100, H - 88, 6000, 6300));
+  enemies.push(createStormtrooper(6350, H - 208, 6300, 6440));
+  enemies.push(createStormtrooper(6600, H - 88, 6500, 6800));
+
+  // Section 4 (7000-9500): Turret Alley
+  enemies.push(createTurret(7100, H - 80));
+  enemies.push(createStormtrooper(7450, H - 188, 7400, 7560));
+  enemies.push(createTurret(7600, H - 80));
+  enemies.push(createStormtrooper(7850, H - 248, 7800, 7960));
+  enemies.push(createTurret(8100, H - 80));
+  enemies.push(createStormtrooper(8450, H - 208, 8400, 8560));
+  enemies.push(createTurret(8600, H - 80));
+  enemies.push(createStormtrooper(8850, H - 268, 8800, 8960));
+  enemies.push(createTurret(9100, H - 80));
+  enemies.push(createStormtrooper(9300, H - 88, 9200, 9480));
+
+  // Section 5 (9500-10500): Gauntlet
+  enemies.push(createStormtrooper(9600, H - 88, 9500, 9700));
+  enemies.push(createStormtrooper(9750, H - 188, 9700, 9880));
+  enemies.push(createStormtrooper(9900, H - 88, 9800, 10100));
+  enemies.push(createStormtrooper(10050, H - 268, 10000, 10180));
+  enemies.push(createTurret(10200, H - 80));
+  enemies.push(createStormtrooper(10350, H - 208, 10300, 10480));
 }
 
 function createStormtrooper(x, y, patrolMin, patrolMax) {
@@ -855,36 +1061,108 @@ function drawStormtrooper(sx, sy, facing, stunned) {
   ctx.translate(sx + 12, sy);
 
   // Boots
-  ctx.fillStyle = '#222';
+  ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(-8, 38, 7, 10);
   ctx.fillRect(1, 38, 7, 10);
 
-  // Legs
-  ctx.fillStyle = '#EEE';
+  // Leg armor - white with black joints
+  ctx.fillStyle = '#E8E8E8';
   ctx.fillRect(-7, 26, 6, 14);
   ctx.fillRect(1, 26, 6, 14);
+  // Knee joint detail
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-7, 32, 6, 2);
+  ctx.fillRect(1, 32, 6, 2);
 
-  // Body armor
-  ctx.fillStyle = '#F5F5F5';
+  // Body armor - main torso plate
+  ctx.fillStyle = '#F0F0F0';
   ctx.fillRect(-10, 10, 20, 18);
-  // Armor detail
+  // Chest armor ab-plate lines
+  ctx.fillStyle = '#CCC';
+  ctx.fillRect(-10, 10, 20, 1);
+  ctx.fillRect(-10, 18, 20, 1);
+  // Center vertical line
   ctx.fillStyle = '#222';
-  ctx.fillRect(-2, 12, 4, 10);
+  ctx.fillRect(-1, 12, 2, 14);
+  // Shoulder pauldrons
+  ctx.fillStyle = '#DDD';
+  ctx.fillRect(-12, 10, 4, 6);
+  ctx.fillRect(8, 10, 4, 6);
+  // Black bodyglove visible at sides
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-11, 16, 2, 8);
+  ctx.fillRect(9, 16, 2, 8);
 
-  // Helmet
-  ctx.fillStyle = '#F5F5F5';
-  ctx.fillRect(-8, -2, 16, 14);
-  // Visor
+  // Belt/waist
   ctx.fillStyle = '#222';
-  ctx.fillRect(-6, 2, 12, 4);
-  // Mouth detail
+  ctx.fillRect(-10, 24, 20, 3);
+  // Belt boxes
+  ctx.fillStyle = '#555';
+  ctx.fillRect(-8, 24, 4, 3);
+  ctx.fillRect(4, 24, 4, 3);
+
+  // Helmet - distinctive T-visor stormtrooper shape
+  // Main helmet dome
+  ctx.fillStyle = '#F0F0F0';
+  ctx.beginPath();
+  ctx.moveTo(-9, 10);
+  ctx.lineTo(-10, 4);
+  ctx.lineTo(-9, -1);
+  ctx.lineTo(-6, -3);
+  ctx.lineTo(6, -3);
+  ctx.lineTo(9, -1);
+  ctx.lineTo(10, 4);
+  ctx.lineTo(9, 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Helmet side ridges
+  ctx.fillStyle = '#DDD';
+  ctx.fillRect(-10, 2, 2, 6);
+  ctx.fillRect(8, 2, 2, 6);
+
+  // T-visor - the iconic black T shape
+  // Horizontal bar
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-7, 2, 14, 3);
+  // Vertical stem
+  ctx.fillRect(-2, 2, 4, 6);
+
+  // Helmet "frown" / mouth grille - triangular filter shape
   ctx.fillStyle = '#333';
-  ctx.fillRect(-3, 7, 6, 3);
+  ctx.beginPath();
+  ctx.moveTo(-4, 8);
+  ctx.lineTo(0, 10);
+  ctx.lineTo(4, 8);
+  ctx.lineTo(4, 10);
+  ctx.lineTo(-4, 10);
+  ctx.closePath();
+  ctx.fill();
+  // Small vent lines
+  ctx.fillStyle = '#555';
+  ctx.fillRect(-3, 8, 1, 2);
+  ctx.fillRect(-1, 8, 1, 2);
+  ctx.fillRect(1, 8, 1, 2);
+  ctx.fillRect(3, 8, 1, 2);
 
-  // Blaster
+  // Vocoder dots on cheeks
+  ctx.fillStyle = '#BBB';
+  ctx.fillRect(-7, 6, 2, 1);
+  ctx.fillRect(-7, 8, 2, 1);
+  ctx.fillRect(5, 6, 2, 1);
+  ctx.fillRect(5, 8, 2, 1);
+
+  // Blaster - E-11 style
   ctx.fillStyle = '#333';
   const bx = facing === 1 ? 8 : -14;
-  ctx.fillRect(bx, 16, 8, 4);
+  ctx.fillRect(bx, 16, 10, 3);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(bx + (facing === 1 ? 8 : -2), 15, 4, 5);
+
+  // Arms holding blaster
+  ctx.fillStyle = '#E8E8E8';
+  const armX = facing === 1 ? 8 : -10;
+  ctx.fillRect(armX, 12, 4, 10);
 
   // Stun stars
   if (stunned) {
@@ -930,7 +1208,7 @@ let vader = null;
 
 function createVader() {
   return {
-    x: 7600, y: H - 105, w: 36, h: 65,
+    x: 12500, y: H - 105, w: 36, h: 65,
     hp: 300, maxHp: 300,
     alive: true,
     phase: 1,
@@ -981,6 +1259,7 @@ function updateVader() {
       gameEndTime = Date.now();
       playSound('victory');
       stopSaberHum();
+      stopImperialMarch();
       // Section bonuses
       luke.sectionDamage.forEach((damaged, i) => {
         if (!damaged) score += 50;
@@ -1114,51 +1393,180 @@ function drawVader() {
   ctx.save();
   ctx.translate(sx + vader.w / 2, sy);
 
-  // Cape
-  ctx.fillStyle = '#111';
+  // Cape - flowing shape
+  ctx.fillStyle = '#0a0a0a';
   ctx.beginPath();
-  ctx.moveTo(-16, 10);
-  ctx.lineTo(-20, vader.h);
-  ctx.lineTo(20, vader.h);
-  ctx.lineTo(16, 10);
+  ctx.moveTo(-18, 8);
+  ctx.quadraticCurveTo(-26, vader.h * 0.5, -22, vader.h);
+  ctx.lineTo(22, vader.h);
+  ctx.quadraticCurveTo(26, vader.h * 0.5, 18, 8);
+  ctx.closePath();
+  ctx.fill();
+  // Cape inner shadow
+  ctx.fillStyle = '#050505';
+  ctx.beginPath();
+  ctx.moveTo(-14, 12);
+  ctx.quadraticCurveTo(-20, vader.h * 0.6, -18, vader.h);
+  ctx.lineTo(18, vader.h);
+  ctx.quadraticCurveTo(20, vader.h * 0.6, 14, 12);
+  ctx.closePath();
   ctx.fill();
 
   // Boots
-  ctx.fillStyle = '#111';
+  ctx.fillStyle = '#0e0e0e';
   ctx.fillRect(-12, vader.h - 12, 10, 12);
   ctx.fillRect(2, vader.h - 12, 10, 12);
+  // Shin guards
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(-12, vader.h - 16, 10, 6);
+  ctx.fillRect(2, vader.h - 16, 10, 6);
 
   // Legs
-  ctx.fillStyle = '#1A1A1A';
+  ctx.fillStyle = '#151515';
   ctx.fillRect(-11, vader.h - 28, 9, 18);
   ctx.fillRect(2, vader.h - 28, 9, 18);
+  // Knee armor
+  ctx.fillStyle = '#1c1c1c';
+  ctx.fillRect(-11, vader.h - 25, 9, 4);
+  ctx.fillRect(2, vader.h - 25, 9, 4);
 
-  // Body armor
+  // Body armor - layered chest plate
   ctx.fillStyle = '#111';
   ctx.fillRect(-16, 10, 32, 24);
-  // Chest panel
-  ctx.fillStyle = '#333';
-  ctx.fillRect(-6, 16, 12, 12);
-  ctx.fillStyle = '#F44336';
-  ctx.fillRect(-4, 18, 3, 3);
-  ctx.fillStyle = '#4CAF50';
-  ctx.fillRect(1, 18, 3, 3);
-  ctx.fillStyle = '#2196F3';
-  ctx.fillRect(-4, 23, 3, 3);
+  // Shoulder armor ridges
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(-18, 10, 4, 8);
+  ctx.fillRect(14, 10, 4, 8);
+  // Chain/collar piece
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-14, 8, 28, 4);
+  // Robes visible underneath
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(-14, 28, 28, 6);
 
-  // Helmet
+  // Chest control panel - the iconic box
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(-8, 15, 16, 16);
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-8, 15, 16, 16);
+  // Panel buttons - arranged in rows
+  ctx.fillStyle = '#F44336';
+  ctx.fillRect(-5, 17, 4, 3);
+  ctx.fillStyle = '#4CAF50';
+  ctx.fillRect(1, 17, 4, 3);
+  ctx.fillStyle = '#2196F3';
+  ctx.fillRect(-5, 22, 4, 3);
+  ctx.fillStyle = '#FFC107';
+  ctx.fillRect(1, 22, 4, 3);
+  // Panel sliders
+  ctx.fillStyle = '#555';
+  ctx.fillRect(-5, 27, 10, 2);
+  ctx.fillStyle = '#888';
+  ctx.fillRect(-5, 27, 4, 2);
+
+  // Belt
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-16, 32, 32, 3);
+  ctx.fillStyle = '#444';
+  ctx.fillRect(-3, 32, 6, 3);
+
+  // Helmet - the iconic Vader dome shape
+  // Back dome (wider, rounded top)
+  ctx.fillStyle = '#0e0e0e';
+  ctx.beginPath();
+  ctx.moveTo(-14, 10);
+  ctx.lineTo(-14, 2);
+  ctx.quadraticCurveTo(-14, -8, 0, -8);
+  ctx.quadraticCurveTo(14, -8, 14, 2);
+  ctx.lineTo(14, 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Face plate / mask area
   ctx.fillStyle = '#111';
-  ctx.fillRect(-12, -4, 24, 18);
-  ctx.fillRect(-14, 2, 28, 8);
-  // Eye slit
+  ctx.beginPath();
+  ctx.moveTo(-11, 10);
+  ctx.lineTo(-11, 2);
+  ctx.quadraticCurveTo(-11, -4, 0, -4);
+  ctx.quadraticCurveTo(11, -4, 11, 2);
+  ctx.lineTo(11, 10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Brow ridge - angular, menacing
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.moveTo(-12, 2);
+  ctx.lineTo(-8, 0);
+  ctx.lineTo(0, 1);
+  ctx.lineTo(8, 0);
+  ctx.lineTo(12, 2);
+  ctx.lineTo(12, 4);
+  ctx.lineTo(-12, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye lenses - triangular, dark with red glow
+  ctx.fillStyle = '#1c1c1c';
+  ctx.beginPath();
+  ctx.moveTo(-9, 3);
+  ctx.lineTo(-3, 3);
+  ctx.lineTo(-3, 6);
+  ctx.lineTo(-9, 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(9, 3);
+  ctx.lineTo(3, 3);
+  ctx.lineTo(3, 6);
+  ctx.lineTo(9, 5);
+  ctx.closePath();
+  ctx.fill();
+  // Eye glow
   ctx.fillStyle = '#FF1744';
   ctx.shadowColor = '#FF1744';
-  ctx.shadowBlur = 6;
-  ctx.fillRect(-8, 4, 16, 2);
+  ctx.shadowBlur = 4;
+  ctx.fillRect(-8, 4, 4, 1);
+  ctx.fillRect(4, 4, 4, 1);
   ctx.shadowBlur = 0;
-  // Mouth grill
-  ctx.fillStyle = '#333';
-  ctx.fillRect(-5, 8, 10, 4);
+
+  // Nose ridge - triangular
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.moveTo(-2, 5);
+  ctx.lineTo(0, 3);
+  ctx.lineTo(2, 5);
+  ctx.lineTo(2, 7);
+  ctx.lineTo(-2, 7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Mouth grille / respirator - the iconic triangular vent
+  ctx.fillStyle = '#181818';
+  ctx.beginPath();
+  ctx.moveTo(-7, 7);
+  ctx.lineTo(7, 7);
+  ctx.lineTo(5, 12);
+  ctx.lineTo(-5, 12);
+  ctx.closePath();
+  ctx.fill();
+  // Grille lines
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 0.8;
+  for (let gi = 0; gi < 4; gi++) {
+    const gy = 8 + gi * 1.2;
+    const gw = 6 - gi * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-gw, gy);
+    ctx.lineTo(gw, gy);
+    ctx.stroke();
+  }
+
+  // Helmet side tubes / cheek vents
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(-13, 5, 3, 6);
+  ctx.fillRect(10, 5, 3, 6);
 
   // Lightsaber
   if (!vader.dying || vader.deathTimer > 60) {
@@ -1521,7 +1929,7 @@ function update() {
   updateVader();
 
   // Boss trigger
-  if (!bossActive && luke.x > 6200 && vader && vader.alive) {
+  if (!bossActive && luke.x > 10700 && vader && vader.alive) {
     bossActive = true;
     bossEntrancePlaying = true;
     bossEntranceTimer = 120;
@@ -1594,9 +2002,12 @@ window.addEventListener('keydown', e => {
       initAudio();
       gameState = 'playing';
       initGame();
+      playImperialMarch();
     } else if (gameState === 'gameover' || gameState === 'victory') {
+      stopImperialMarch();
       gameState = 'playing';
       initGame();
+      playImperialMarch();
     }
   }
 });
