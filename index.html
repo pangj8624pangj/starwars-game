@@ -320,7 +320,7 @@ function playSound(type) {
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyX'].includes(e.code)) {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyX', 'KeyA'].includes(e.code)) {
     e.preventDefault();
   }
 });
@@ -521,6 +521,7 @@ function createLuke() {
     attackCooldown: 0,
     forcePushCooldown: 0,
     forcePushMaxCooldown: 180, // 3 seconds at 60fps
+    blocking: false,
     invincible: 0,
     idleTimer: 0,
     checkpointX: 80,
@@ -555,7 +556,7 @@ function updateLuke() {
   }
 
   // Movement
-  const speed = 4;
+  const speed = keys['KeyA'] ? 1.5 : 4;
   if (keys['ArrowLeft']) {
     luke.vx = -speed;
     luke.facing = -1;
@@ -597,6 +598,9 @@ function updateLuke() {
     performForcePush();
   }
   if (luke.forcePushCooldown > 0) luke.forcePushCooldown--;
+
+  // Block
+  luke.blocking = !!keys['KeyA'] && !luke.attacking;
 
   // Physics
   luke.vy += GRAVITY;
@@ -680,11 +684,21 @@ function updateLuke() {
     if (p.owner === 'player') continue;
     if (luke.x < p.x + 6 && luke.x + luke.w > p.x - 6 &&
         luke.y < p.y + 2 && luke.y + luke.h > p.y - 2) {
-      // Parry check
+      // Parry check (attack swing)
       if (luke.attacking && luke.attackTimer > 6) {
         projectiles.splice(i, 1);
         spawnParticles(p.x, p.y, '#FFF', 8, 3);
         playSound('parry');
+      // Block check (A key)
+      } else if (luke.blocking) {
+        p.vx = -p.vx * 1.2;
+        p.owner = 'player';
+        p.damage = Math.floor(p.damage * 1.5);
+        p.color = '#4FC3F7';
+        spawnParticles(p.x, p.y, '#4FC3F7', 6, 3);
+        playSound('parry');
+        screenShake = 3;
+        screenShakeIntensity = 2;
       } else {
         damageLuke(p.damage);
         projectiles.splice(i, 1);
@@ -846,7 +860,18 @@ function drawLuke() {
   // Blade
   ctx.globalAlpha = saberGlow;
   ctx.fillStyle = '#4FC3F7';
-  if (luke.attacking) {
+  if (luke.blocking) {
+    // Blocking stance - saber held horizontally across body
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(-16, 10, 32, 4);
+    // Shield glow effect
+    ctx.globalAlpha = 0.15 + Math.sin(Date.now() / 100) * 0.08;
+    ctx.fillStyle = '#4FC3F7';
+    ctx.beginPath();
+    ctx.arc(0, luke.h / 2, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (luke.attacking) {
     // Slash animation
     const angle = (1 - luke.attackTimer / 12) * Math.PI * 0.5 - Math.PI * 0.25;
     ctx.save();
@@ -1305,6 +1330,13 @@ function updateVader() {
         playSound('parry');
         screenShake = 6;
         screenShakeIntensity = 3;
+      } else if (luke.blocking) {
+        vader.attackHitbox = false;
+        spawnParticles(luke.x + luke.w / 2, luke.y + 10, '#4FC3F7', 8, 3);
+        playSound('parry');
+        damageLuke(10);
+        screenShake = 4;
+        screenShakeIntensity = 2;
       } else {
         damageLuke(30);
         vader.attackHitbox = false;
@@ -1747,7 +1779,7 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.font = '10px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('\u2190 \u2192 Move | Space Jump | Z Attack | X Force Push', W / 2, H - 10);
+  ctx.fillText('\u2190 \u2192 Move | Space Jump | Z Attack | A Block | X Force Push', W / 2, H - 10);
   ctx.textAlign = 'left';
 
   // Checkpoint text
