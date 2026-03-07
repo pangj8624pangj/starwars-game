@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Wars: A New Hope - The Game</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+  font-family: 'Arial', sans-serif;
+}
+canvas {
+  border: 1px solid #333;
+  image-rendering: pixelated;
+}
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<script>
+// ============================================================
+// STAR WARS: A NEW HOPE — THE GAME
+// Single-file HTML5 Canvas side-scroller
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 960, H = 540;
+const LEVEL_WIDTH = 8000;
+const GRAVITY = 0.6;
+const FRICTION = 0.85;
+
+// ============================================================
+// WEB AUDIO
+// ============================================================
+let audioCtx = null;
+let masterGain = null;
+let saberHumOsc = null;
+let saberHumGain = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.3;
+  masterGain.connect(audioCtx.destination);
+}
+
+function startSaberHum() {
+  if (!audioCtx || saberHumOsc) return;
+  saberHumOsc = audioCtx.createOscillator();
+  saberHumGain = audioCtx.createGain();
+  saberHumOsc.type = 'sawtooth';
+  saberHumOsc.frequency.value = 110;
+  saberHumGain.gain.value = 0.03;
+  saberHumOsc.connect(saberHumGain);
+  saberHumGain.connect(masterGain);
+  saberHumOsc.start();
+}
+
+function stopSaberHum() {
+  if (saberHumOsc) {
+    saberHumOsc.stop();
+    saberHumOsc = null;
+    saberHumGain = null;
+  }
+}
+
+function playSound(type) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  switch (type) {
+    case 'swing': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(200, now);
+      o.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+      g.gain.setValueAtTime(0.15, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.15);
+      break;
+    }
+    case 'laser': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(900, now);
+      o.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+      g.gain.setValueAtTime(0.1, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.15);
+      break;
+    }
+    case 'hit': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(80, now);
+      o.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+      g.gain.setValueAtTime(0.2, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.2);
+      break;
+    }
+    case 'jump': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(300, now);
+      o.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+      g.gain.setValueAtTime(0.08, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.12);
+      break;
+    }
+    case 'bossDrone': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(55, now);
+      o.frequency.linearRampToValueAtTime(40, now + 2);
+      g.gain.setValueAtTime(0.15, now);
+      g.gain.linearRampToValueAtTime(0, now + 2);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 2);
+      break;
+    }
+    case 'victory': {
+      const notes = [523, 659, 784, 1047, 1319];
+      notes.forEach((freq, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0, now + i * 0.2);
+        g.gain.linearRampToValueAtTime(0.12, now + i * 0.2 + 0.05);
+        g.gain.linearRampToValueAtTime(0, now + i * 0.2 + 0.4);
+        o.connect(g); g.connect(masterGain);
+        o.start(now + i * 0.2); o.stop(now + i * 0.2 + 0.4);
+      });
+      break;
+    }
+    case 'parry': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(1200, now);
+      o.frequency.exponentialRampToValueAtTime(2400, now + 0.05);
+      g.gain.setValueAtTime(0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.1);
+      break;
+    }
+    case 'forcePush': {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(150, now);
+      o.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+      g.gain.setValueAtTime(0.15, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      o.connect(g); g.connect(masterGain);
+      o.start(now); o.stop(now + 0.3);
+      break;
+    }
+  }
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyX'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let gameState = 'start'; // start, playing, gameover, victory
+let camera = { x: 0 };
+let score = 0;
+let gameStartTime = 0;
+let gameEndTime = 0;
+let screenShake = 0;
+let screenShakeIntensity = 0;
+let checkpointText = { text: '', timer: 0 };
+let damageFlash = 0;
+let bossActive = false;
+let bossEntrancePlaying = false;
+let bossEntranceTimer = 0;
+
+// ============================================================
+// STARS (parallax layers)
+// ============================================================
+const stars = [[], [], []];
+function generateStars() {
+  for (let layer = 0; layer < 3; layer++) {
+    stars[layer] = [];
+    const count = [80, 40, 20][layer];
+    for (let i = 0; i < count; i++) {
+      stars[layer].push({
+        x: Math.random() * LEVEL_WIDTH,
+        y: Math.random() * (H - 100),
+        size: [1, 1.5, 2][layer],
+        brightness: Math.random() * 0.5 + 0.5
+      });
+    }
+  }
+}
+
+// ============================================================
+// LEVEL PLATFORMS & STRUCTURES
+// ============================================================
+let platforms = [];
+let checkpoints = [];
+
+function buildLevel() {
+  platforms = [];
+  // Ground floor: runs the entire level
+  platforms.push({ x: 0, y: H - 40, w: LEVEL_WIDTH, h: 40, type: 'ground' });
+
+  // Section 1 (0-2000): Corridor - flat ground, walls
+  platforms.push({ x: 0, y: 0, w: 20, h: H, type: 'wall' });
+
+  // Section 2 (2000-4500): Platforms
+  platforms.push({ x: 2100, y: H - 140, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 2450, y: H - 220, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 2800, y: H - 160, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 3100, y: H - 260, w: 220, h: 20, type: 'platform' });
+  platforms.push({ x: 3450, y: H - 180, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 3750, y: H - 240, w: 200, h: 20, type: 'platform' });
+  platforms.push({ x: 4050, y: H - 140, w: 200, h: 20, type: 'platform' });
+
+  // Section 3 (4500-6000): Turret Alley
+
+  // Section 4 (6000-8000): Boss Arena
+  platforms.push({ x: 6000, y: 0, w: 20, h: H - 40, type: 'wall' });
+
+  // Checkpoints
+  checkpoints = [
+    { x: 2000, triggered: false },
+    { x: 6000, triggered: false }
+  ];
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+let particles = [];
+
+function spawnParticles(x, y, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = Math.random() * speed + 1;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 1,
+      life: 1,
+      decay: 0.02 + Math.random() * 0.03,
+      color,
+      size: Math.random() * 3 + 1
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;
+    p.life -= p.decay;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 6;
+    ctx.fillRect(p.x - camera.x, p.y, p.size, p.size);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  });
+}
+
+// ============================================================
+// PROJECTILES
+// ============================================================
+let projectiles = [];
+
+function spawnProjectile(x, y, vx, vy, damage, color, owner) {
+  projectiles.push({ x, y, vx, vy, damage, color, owner, startX: x, alive: true });
+}
+
+function updateProjectiles() {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    // Remove if traveled too far or out of bounds
+    if (Math.abs(p.x - p.startX) > 400 || p.x < 0 || p.x > LEVEL_WIDTH || p.y < 0 || p.y > H) {
+      projectiles.splice(i, 1);
+      continue;
+    }
+    // Check platform collision
+    for (const plat of platforms) {
+      if (plat.type === 'wall' && p.x > plat.x && p.x < plat.x + plat.w &&
+          p.y > plat.y && p.y < plat.y + plat.h) {
+        projectiles.splice(i, 1);
+        break;
+      }
+    }
+  }
+}
+
+function drawProjectiles() {
+  projectiles.forEach(p => {
+    const sx = p.x - camera.x;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(sx - 6, p.y - 2, 12, 4);
+    ctx.shadowBlur = 0;
+  });
+}
+
+// ============================================================
+// PLAYER: LUKE SKYWALKER
+// ============================================================
+let luke;
+
+function createLuke() {
+  return {
+    x: 80, y: H - 100, w: 28, h: 48,
+    vx: 0, vy: 0,
+    hp: 100, maxHp: 100,
+    lives: 3,
+    facing: 1, // 1 = right, -1 = left
+    onGround: false,
+    jumps: 0,
+    maxJumps: 2,
+    attacking: false,
+    attackTimer: 0,
+    attackCooldown: 0,
+    forcePushCooldown: 0,
+    forcePushMaxCooldown: 180, // 3 seconds at 60fps
+    invincible: 0,
+    idleTimer: 0,
+    checkpointX: 80,
+    checkpointY: H - 100,
+    sectionDamage: [false, false, false, false], // track damage per section
+    dead: false,
+    deathTimer: 0
+  };
+}
+
+function updateLuke() {
+  if (luke.dead) {
+    luke.deathTimer--;
+    if (luke.deathTimer <= 0) {
+      luke.lives--;
+      if (luke.lives <= 0) {
+        gameState = 'gameover';
+        gameEndTime = Date.now();
+        stopSaberHum();
+        return;
+      }
+      luke.hp = luke.maxHp;
+      luke.x = luke.checkpointX;
+      luke.y = luke.checkpointY;
+      luke.vx = 0;
+      luke.vy = 0;
+      luke.dead = false;
+      luke.invincible = 60;
+    }
+    return;
+  }
+
+  // Movement
+  const speed = 4;
+  if (keys['ArrowLeft']) {
+    luke.vx = -speed;
+    luke.facing = -1;
+  } else if (keys['ArrowRight']) {
+    luke.vx = speed;
+    luke.facing = 1;
+  } else {
+    luke.vx *= FRICTION;
+    if (Math.abs(luke.vx) < 0.1) luke.vx = 0;
+  }
+
+  // Jump
+  if ((keys['Space'] || keys['ArrowUp']) && luke.jumps < luke.maxJumps) {
+    if (!luke._jumpPressed) {
+      luke.vy = -11;
+      luke.jumps++;
+      luke._jumpPressed = true;
+      playSound('jump');
+    }
+  }
+  if (!keys['Space'] && !keys['ArrowUp']) luke._jumpPressed = false;
+
+  // Attack
+  if (keys['KeyZ'] && !luke.attacking && luke.attackCooldown <= 0) {
+    luke.attacking = true;
+    luke.attackTimer = 12;
+    luke.attackCooldown = 18;
+    playSound('swing');
+  }
+  if (luke.attacking) {
+    luke.attackTimer--;
+    if (luke.attackTimer <= 0) luke.attacking = false;
+  }
+  if (luke.attackCooldown > 0) luke.attackCooldown--;
+
+  // Force push
+  if (keys['KeyX'] && luke.forcePushCooldown <= 0) {
+    luke.forcePushCooldown = luke.forcePushMaxCooldown;
+    performForcePush();
+  }
+  if (luke.forcePushCooldown > 0) luke.forcePushCooldown--;
+
+  // Physics
+  luke.vy += GRAVITY;
+  luke.x += luke.vx;
+  luke.y += luke.vy;
+
+  // Platform collision
+  luke.onGround = false;
+  for (const plat of platforms) {
+    if (plat.type === 'wall') {
+      // Horizontal wall collision
+      if (luke.y + luke.h > plat.y && luke.y < plat.y + plat.h) {
+        if (luke.x + luke.w > plat.x && luke.x < plat.x + plat.w) {
+          if (luke.vx > 0) luke.x = plat.x - luke.w;
+          else if (luke.vx < 0) luke.x = plat.x + plat.w;
+          luke.vx = 0;
+        }
+      }
+      continue;
+    }
+    // Ground/platform collision (only from above)
+    if (luke.vy >= 0 &&
+        luke.x + luke.w > plat.x && luke.x < plat.x + plat.w &&
+        luke.y + luke.h > plat.y && luke.y + luke.h < plat.y + plat.h + luke.vy + 2) {
+      luke.y = plat.y - luke.h;
+      luke.vy = 0;
+      luke.onGround = true;
+      luke.jumps = 0;
+    }
+  }
+
+  // Level boundaries
+  if (luke.x < 0) luke.x = 0;
+  if (luke.x + luke.w > LEVEL_WIDTH) luke.x = LEVEL_WIDTH - luke.w;
+  if (luke.y > H) {
+    damageLuke(100);
+  }
+
+  // Invincibility
+  if (luke.invincible > 0) luke.invincible--;
+
+  // Idle bob
+  luke.idleTimer += 0.05;
+
+  // Camera
+  camera.x = luke.x - W / 3;
+  if (camera.x < 0) camera.x = 0;
+  if (camera.x > LEVEL_WIDTH - W) camera.x = LEVEL_WIDTH - W;
+
+  // Checkpoints
+  checkpoints.forEach((cp, i) => {
+    if (!cp.triggered && luke.x > cp.x) {
+      cp.triggered = true;
+      luke.checkpointX = luke.x;
+      luke.checkpointY = luke.y;
+      checkpointText = { text: 'CHECKPOINT', timer: 120 };
+    }
+  });
+
+  // Attack hitbox check
+  if (luke.attacking && luke.attackTimer === 10) {
+    const hx = luke.facing === 1 ? luke.x + luke.w : luke.x - 70;
+    const hy = luke.y;
+    const hw = 70, hh = luke.h;
+    enemies.forEach(e => {
+      if (e.alive && rectsOverlap(hx, hy, hw, hh, e.x, e.y, e.w, e.h)) {
+        damageEnemy(e, 25);
+      }
+    });
+    // Boss
+    if (vader && vader.alive && !vader.blocking) {
+      if (rectsOverlap(hx, hy, hw, hh, vader.x, vader.y, vader.w, vader.h)) {
+        damageVader(25);
+      }
+    }
+  }
+
+  // Projectile collision with Luke
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    if (p.owner === 'player') continue;
+    if (luke.x < p.x + 6 && luke.x + luke.w > p.x - 6 &&
+        luke.y < p.y + 2 && luke.y + luke.h > p.y - 2) {
+      // Parry check
+      if (luke.attacking && luke.attackTimer > 6) {
+        projectiles.splice(i, 1);
+        spawnParticles(p.x, p.y, '#FFF', 8, 3);
+        playSound('parry');
+      } else {
+        damageLuke(p.damage);
+        projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  // Enemy contact damage
+  enemies.forEach(e => {
+    if (e.alive && rectsOverlap(luke.x, luke.y, luke.w, luke.h, e.x, e.y, e.w, e.h)) {
+      damageLuke(e.contactDamage);
+    }
+  });
+
+  // Boss contact
+  if (vader && vader.alive && vader.dashing) {
+    if (rectsOverlap(luke.x, luke.y, luke.w, luke.h, vader.x, vader.y, vader.w, vader.h)) {
+      damageLuke(25);
+    }
+  }
+
+  // Section tracking for no-damage bonus
+  const section = luke.x < 2000 ? 0 : luke.x < 4500 ? 1 : luke.x < 6000 ? 2 : 3;
+  luke.currentSection = section;
+}
+
+function damageLuke(amount) {
+  if (luke.invincible > 0 || luke.dead) return;
+  luke.hp -= amount;
+  luke.invincible = 30;
+  damageFlash = 10;
+  screenShake = 8;
+  screenShakeIntensity = 4;
+  playSound('hit');
+  // Track section damage
+  const section = luke.x < 2000 ? 0 : luke.x < 4500 ? 1 : luke.x < 6000 ? 2 : 3;
+  luke.sectionDamage[section] = true;
+
+  if (luke.hp <= 0) {
+    luke.hp = 0;
+    luke.dead = true;
+    luke.deathTimer = 60;
+  }
+}
+
+function performForcePush() {
+  playSound('forcePush');
+  const cx = luke.x + luke.w / 2;
+  const cy = luke.y + luke.h / 2;
+  const radius = 120;
+  spawnParticles(cx, cy, '#4FC3F7', 20, 5);
+
+  enemies.forEach(e => {
+    if (!e.alive) return;
+    const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+    const dist = Math.hypot(ex - cx, ey - cy);
+    if (dist < radius) {
+      const dir = ex > cx ? 1 : -1;
+      e.x += dir * 60;
+      e.stunTimer = 60;
+    }
+  });
+
+  if (vader && vader.alive && !vader.blocking) {
+    const vx = vader.x + vader.w / 2, vy = vader.y + vader.h / 2;
+    if (Math.hypot(vx - cx, vy - cy) < radius) {
+      const dir = vx > cx ? 1 : -1;
+      vader.x += dir * 60;
+      vader.stunTimer = 60;
+    }
+  }
+
+  // Remove nearby projectiles
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    if (p.owner !== 'player' && Math.hypot(p.x - cx, p.y - cy) < radius) {
+      projectiles.splice(i, 1);
+    }
+  }
+}
+
+function drawLuke() {
+  if (luke.dead && luke.deathTimer > 0) return;
+  if (luke.invincible > 0 && Math.floor(luke.invincible / 3) % 2 === 0) return;
+
+  const sx = luke.x - camera.x;
+  const bob = luke.vx === 0 && luke.onGround ? Math.sin(luke.idleTimer) * 2 : 0;
+  const sy = luke.y + bob;
+  const f = luke.facing;
+
+  ctx.save();
+  ctx.translate(sx + luke.w / 2, sy);
+
+  // Boots
+  ctx.fillStyle = '#3E2723';
+  ctx.fillRect(-10, luke.h - 10, 8, 10);
+  ctx.fillRect(2, luke.h - 10, 8, 10);
+
+  // Legs
+  ctx.fillStyle = '#D7CCC8';
+  ctx.fillRect(-9, luke.h - 22, 8, 14);
+  ctx.fillRect(1, luke.h - 22, 8, 14);
+
+  // Body (tunic)
+  ctx.fillStyle = '#D7CCC8';
+  ctx.fillRect(-12, 12, 24, 18);
+
+  // Belt
+  ctx.fillStyle = '#5D4037';
+  ctx.fillRect(-12, 26, 24, 4);
+
+  // Head
+  ctx.fillStyle = '#FFCCBC';
+  ctx.fillRect(-7, 0, 14, 14);
+
+  // Hair
+  ctx.fillStyle = '#8D6E63';
+  ctx.fillRect(-8, -1, 16, 6);
+
+  // Eyes
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-4, 5, 3, 3);
+  ctx.fillRect(1, 5, 3, 3);
+
+  // Lightsaber
+  const saberGlow = luke.attacking ? 1 : 0.6;
+  const saberLen = luke.attacking ? 45 : 35;
+  ctx.save();
+  ctx.shadowColor = '#4FC3F7';
+  ctx.shadowBlur = luke.attacking ? 20 : 10;
+
+  // Handle
+  ctx.fillStyle = '#888';
+  const hx = f === 1 ? 10 : -14;
+  ctx.fillRect(hx, 14, 4, 10);
+
+  // Blade
+  ctx.globalAlpha = saberGlow;
+  ctx.fillStyle = '#4FC3F7';
+  if (luke.attacking) {
+    // Slash animation
+    const angle = (1 - luke.attackTimer / 12) * Math.PI * 0.5 - Math.PI * 0.25;
+    ctx.save();
+    ctx.translate(hx + 2, 14);
+    ctx.rotate(f === 1 ? angle : -angle);
+    ctx.fillRect(-2, -saberLen, 4, saberLen);
+    // Trail
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(-4, -saberLen, 8, saberLen);
+    ctx.restore();
+  } else {
+    ctx.fillRect(hx, 14 - saberLen, 4, saberLen);
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ============================================================
+// ENEMIES
+// ============================================================
+let enemies = [];
+
+function spawnEnemies() {
+  enemies = [];
+  // Section 1: 3 stormtroopers on ground
+  enemies.push(createStormtrooper(400, H - 88, 350, 550));
+  enemies.push(createStormtrooper(900, H - 88, 800, 1100));
+  enemies.push(createStormtrooper(1500, H - 88, 1400, 1800));
+
+  // Section 2: 2 per platform (some on ground between platforms)
+  enemies.push(createStormtrooper(2150, H - 188, 2100, 2280));
+  enemies.push(createStormtrooper(2220, H - 188, 2100, 2280));
+  enemies.push(createStormtrooper(2500, H - 268, 2450, 2630));
+  enemies.push(createStormtrooper(2850, H - 208, 2800, 2980));
+  enemies.push(createStormtrooper(3150, H - 308, 3100, 3300));
+  enemies.push(createStormtrooper(3500, H - 228, 3450, 3630));
+  enemies.push(createStormtrooper(3800, H - 288, 3750, 3930));
+  enemies.push(createStormtrooper(4100, H - 88, 4000, 4300));
+  enemies.push(createStormtrooper(4400, H - 88, 4300, 4490));
+
+  // Turrets in Section 3
+  enemies.push(createTurret(4800, H - 80));
+  enemies.push(createTurret(5400, H - 80));
+}
+
+function createStormtrooper(x, y, patrolMin, patrolMax) {
+  return {
+    x, y, w: 24, h: 48,
+    type: 'stormtrooper',
+    hp: 30, maxHp: 30,
+    alive: true,
+    facing: 1,
+    patrolMin, patrolMax,
+    speed: 1,
+    fireTimer: 150,
+    fireCooldown: 150,
+    contactDamage: 15,
+    flashTimer: 0,
+    deathTimer: 0,
+    dying: false,
+    slideVx: 0,
+    stunTimer: 0,
+    points: 10
+  };
+}
+
+function createTurret(x, y) {
+  return {
+    x, y, w: 36, h: 40,
+    type: 'turret',
+    hp: 50, maxHp: 50,
+    alive: true,
+    facing: -1,
+    fireTimer: 90,
+    fireCooldown: 90,
+    contactDamage: 15,
+    flashTimer: 0,
+    deathTimer: 0,
+    dying: false,
+    stunTimer: 0,
+    points: 25
+  };
+}
+
+function damageEnemy(e, amount) {
+  if (!e.alive || e.dying) return;
+  e.hp -= amount;
+  e.flashTimer = 8;
+  playSound('hit');
+  spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#FFF', 6, 3);
+
+  // Knockback
+  const dir = e.x > luke.x ? 1 : -1;
+  e.x += dir * 20;
+
+  if (e.hp <= 0) {
+    e.dying = true;
+    e.deathTimer = 30;
+    score += e.points;
+  }
+}
+
+function updateEnemies() {
+  enemies.forEach(e => {
+    if (!e.alive) return;
+    if (e.dying) {
+      e.deathTimer--;
+      if (e.type === 'stormtrooper') {
+        e.slideVx *= 0.95;
+        e.x += e.slideVx;
+      }
+      if (e.deathTimer <= 0) e.alive = false;
+      return;
+    }
+    if (e.stunTimer > 0) { e.stunTimer--; return; }
+
+    if (e.type === 'stormtrooper') {
+      // Patrol
+      e.x += e.speed * e.facing;
+      if (e.x <= e.patrolMin) e.facing = 1;
+      if (e.x + e.w >= e.patrolMax) e.facing = -1;
+
+      // Face Luke if nearby
+      const dist = Math.abs(luke.x - e.x);
+      if (dist < 400) {
+        e.facing = luke.x > e.x ? 1 : -1;
+      }
+
+      // Fire
+      if (dist < 300 && !luke.dead) {
+        e.fireTimer--;
+        if (e.fireTimer <= 0) {
+          e.fireTimer = e.fireCooldown;
+          const dir = luke.x > e.x ? 1 : -1;
+          spawnProjectile(e.x + e.w / 2 + dir * 15, e.y + 20, dir * 5, 0, 10, '#FF1744', 'enemy');
+          playSound('laser');
+        }
+      }
+    } else if (e.type === 'turret') {
+      // Always face Luke
+      e.facing = luke.x > e.x ? 1 : -1;
+
+      const dist = Math.abs(luke.x - e.x);
+      if (dist < 500 && !luke.dead) {
+        e.fireTimer--;
+        if (e.fireTimer <= 0) {
+          e.fireTimer = e.fireCooldown;
+          const dir = e.facing;
+          spawnProjectile(e.x + e.w / 2 + dir * 20, e.y + 10, dir * 6, 0, 10, '#FF1744', 'enemy');
+          playSound('laser');
+        }
+      }
+    }
+  });
+}
+
+function drawEnemies() {
+  enemies.forEach(e => {
+    if (!e.alive) return;
+    const sx = e.x - camera.x;
+
+    if (e.dying) {
+      ctx.globalAlpha = e.deathTimer / 30;
+    }
+    if (e.flashTimer > 0) {
+      e.flashTimer--;
+      ctx.globalAlpha = (Math.floor(e.flashTimer / 2) % 2 === 0) ? 1 : 0.5;
+    }
+
+    if (e.type === 'stormtrooper') {
+      drawStormtrooper(sx, e.y, e.facing, e.stunTimer > 0);
+    } else if (e.type === 'turret') {
+      drawTurret(sx, e.y, e.facing);
+    }
+
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawStormtrooper(sx, sy, facing, stunned) {
+  ctx.save();
+  ctx.translate(sx + 12, sy);
+
+  // Boots
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-8, 38, 7, 10);
+  ctx.fillRect(1, 38, 7, 10);
+
+  // Legs
+  ctx.fillStyle = '#EEE';
+  ctx.fillRect(-7, 26, 6, 14);
+  ctx.fillRect(1, 26, 6, 14);
+
+  // Body armor
+  ctx.fillStyle = '#F5F5F5';
+  ctx.fillRect(-10, 10, 20, 18);
+  // Armor detail
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-2, 12, 4, 10);
+
+  // Helmet
+  ctx.fillStyle = '#F5F5F5';
+  ctx.fillRect(-8, -2, 16, 14);
+  // Visor
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-6, 2, 12, 4);
+  // Mouth detail
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-3, 7, 6, 3);
+
+  // Blaster
+  ctx.fillStyle = '#333';
+  const bx = facing === 1 ? 8 : -14;
+  ctx.fillRect(bx, 16, 8, 4);
+
+  // Stun stars
+  if (stunned) {
+    ctx.fillStyle = '#FFD700';
+    const t = Date.now() / 200;
+    for (let i = 0; i < 3; i++) {
+      const a = t + i * 2.1;
+      ctx.fillRect(Math.cos(a) * 12, -8 + Math.sin(a) * 4, 3, 3);
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawTurret(sx, sy, facing) {
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Base
+  ctx.fillStyle = '#555';
+  ctx.fillRect(0, 20, 36, 20);
+
+  // Body
+  ctx.fillStyle = '#777';
+  ctx.fillRect(4, 4, 28, 18);
+
+  // Barrel
+  ctx.fillStyle = '#888';
+  const bx = facing === 1 ? 28 : -12;
+  ctx.fillRect(bx, 8, 16, 6);
+
+  // Detail
+  ctx.fillStyle = '#F44336';
+  ctx.fillRect(12, 8, 4, 4);
+
+  ctx.restore();
+}
+
+// ============================================================
+// DARTH VADER (BOSS)
+// ============================================================
+let vader = null;
+
+function createVader() {
+  return {
+    x: 7600, y: H - 105, w: 36, h: 65,
+    hp: 300, maxHp: 300,
+    alive: true,
+    phase: 1,
+    state: 'idle',
+    stateTimer: 120,
+    facing: -1,
+    blocking: false,
+    dashing: false,
+    dashVx: 0,
+    attackHitbox: false,
+    stunTimer: 0,
+    flashTimer: 0,
+    deathTimer: 0,
+    dying: false,
+    entranceDone: false
+  };
+}
+
+function damageVader(amount) {
+  if (!vader || !vader.alive || vader.dying || vader.blocking) return;
+  vader.hp -= amount;
+  vader.flashTimer = 8;
+  spawnParticles(vader.x + vader.w / 2, vader.y + vader.h / 2, '#FF1744', 8, 4);
+  playSound('hit');
+  screenShake = 6;
+  screenShakeIntensity = 3;
+
+  if (vader.hp <= 150 && vader.phase === 1) {
+    vader.phase = 2;
+  }
+
+  if (vader.hp <= 0) {
+    vader.hp = 0;
+    vader.dying = true;
+    vader.deathTimer = 120;
+    score += 500;
+  }
+}
+
+function updateVader() {
+  if (!vader || !vader.alive) return;
+
+  if (vader.dying) {
+    vader.deathTimer--;
+    if (vader.deathTimer <= 0) {
+      vader.alive = false;
+      gameState = 'victory';
+      gameEndTime = Date.now();
+      playSound('victory');
+      stopSaberHum();
+      // Section bonuses
+      luke.sectionDamage.forEach((damaged, i) => {
+        if (!damaged) score += 50;
+      });
+      // Time bonus
+      const timeSec = (gameEndTime - gameStartTime) / 1000;
+      score += Math.max(0, Math.floor(600 - timeSec));
+    }
+    return;
+  }
+
+  if (vader.stunTimer > 0) { vader.stunTimer--; return; }
+
+  vader.facing = luke.x < vader.x ? -1 : 1;
+
+  if (vader.dashing) {
+    vader.x += vader.dashVx;
+    vader.stateTimer--;
+    if (vader.stateTimer <= 0) {
+      vader.dashing = false;
+      vader.state = 'idle';
+      vader.stateTimer = 60;
+    }
+    return;
+  }
+
+  vader.stateTimer--;
+  if (vader.stateTimer <= 0) {
+    vader.blocking = false;
+    vader.attackHitbox = false;
+    vader.dashing = false;
+    chooseVaderAction();
+  }
+
+  // Melee hit check
+  if (vader.attackHitbox) {
+    const hx = vader.facing === 1 ? vader.x + vader.w : vader.x - 80;
+    if (rectsOverlap(hx, vader.y, 80, vader.h, luke.x, luke.y, luke.w, luke.h)) {
+      // Parry check
+      if (luke.attacking && luke.attackTimer > 6) {
+        vader.attackHitbox = false;
+        spawnParticles(luke.x + luke.w / 2, luke.y + 10, '#FFF', 12, 4);
+        playSound('parry');
+        screenShake = 6;
+        screenShakeIntensity = 3;
+      } else {
+        damageLuke(30);
+        vader.attackHitbox = false;
+      }
+    }
+  }
+}
+
+function chooseVaderAction() {
+  const actions = ['advance', 'forceThrow', 'block'];
+  if (vader.phase === 2) {
+    actions.push('dash', 'saberThrow');
+  }
+  const action = actions[Math.floor(Math.random() * actions.length)];
+
+  switch (action) {
+    case 'advance':
+      vader.state = 'advance';
+      vader.stateTimer = 90;
+      const advanceInterval = setInterval(() => {
+        if (!vader || !vader.alive || vader.state !== 'advance') {
+          clearInterval(advanceInterval);
+          return;
+        }
+        const dir = luke.x > vader.x ? 1 : -1;
+        vader.x += dir * 2;
+        const dist = Math.abs(luke.x - vader.x);
+        if (dist < 80) {
+          vader.attackHitbox = true;
+          playSound('swing');
+          setTimeout(() => { if (vader) vader.attackHitbox = false; }, 200);
+          clearInterval(advanceInterval);
+        }
+      }, 16);
+      break;
+    case 'forceThrow':
+      vader.state = 'forceThrow';
+      vader.stateTimer = 60;
+      const dir2 = vader.facing;
+      spawnProjectile(vader.x + vader.w / 2, vader.y + 20, dir2 * 4, 0, 20, '#999', 'enemy');
+      break;
+    case 'block':
+      vader.state = 'block';
+      vader.blocking = true;
+      vader.stateTimer = 90;
+      break;
+    case 'dash':
+      vader.state = 'dash';
+      vader.dashing = true;
+      vader.dashVx = vader.facing * 8;
+      vader.stateTimer = 30;
+      break;
+    case 'saberThrow':
+      vader.state = 'saberThrow';
+      vader.stateTimer = 60;
+      const dir3 = vader.facing;
+      spawnProjectile(vader.x + vader.w / 2, vader.y + 10, dir3 * 5, -2, 20, '#FF1744', 'enemy');
+      spawnProjectile(vader.x + vader.w / 2, vader.y + 30, dir3 * 5, 2, 20, '#FF1744', 'enemy');
+      break;
+  }
+}
+
+function drawVader() {
+  if (!vader || !vader.alive) return;
+  const sx = vader.x - camera.x;
+  let sy = vader.y;
+
+  if (vader.dying) {
+    // Death animation
+    const progress = 1 - vader.deathTimer / 120;
+    if (progress < 0.5) {
+      // Kneel
+      sy += progress * 30;
+    } else {
+      // Collapse
+      sy += 15 + (progress - 0.5) * 50;
+      ctx.globalAlpha = 1 - (progress - 0.5) * 2;
+    }
+  }
+
+  if (vader.flashTimer > 0) {
+    vader.flashTimer--;
+    if (Math.floor(vader.flashTimer / 2) % 2 === 0) ctx.globalAlpha *= 0.5;
+  }
+
+  ctx.save();
+  ctx.translate(sx + vader.w / 2, sy);
+
+  // Cape
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.moveTo(-16, 10);
+  ctx.lineTo(-20, vader.h);
+  ctx.lineTo(20, vader.h);
+  ctx.lineTo(16, 10);
+  ctx.fill();
+
+  // Boots
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-12, vader.h - 12, 10, 12);
+  ctx.fillRect(2, vader.h - 12, 10, 12);
+
+  // Legs
+  ctx.fillStyle = '#1A1A1A';
+  ctx.fillRect(-11, vader.h - 28, 9, 18);
+  ctx.fillRect(2, vader.h - 28, 9, 18);
+
+  // Body armor
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-16, 10, 32, 24);
+  // Chest panel
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-6, 16, 12, 12);
+  ctx.fillStyle = '#F44336';
+  ctx.fillRect(-4, 18, 3, 3);
+  ctx.fillStyle = '#4CAF50';
+  ctx.fillRect(1, 18, 3, 3);
+  ctx.fillStyle = '#2196F3';
+  ctx.fillRect(-4, 23, 3, 3);
+
+  // Helmet
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-12, -4, 24, 18);
+  ctx.fillRect(-14, 2, 28, 8);
+  // Eye slit
+  ctx.fillStyle = '#FF1744';
+  ctx.shadowColor = '#FF1744';
+  ctx.shadowBlur = 6;
+  ctx.fillRect(-8, 4, 16, 2);
+  ctx.shadowBlur = 0;
+  // Mouth grill
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-5, 8, 10, 4);
+
+  // Lightsaber
+  if (!vader.dying || vader.deathTimer > 60) {
+    const f = vader.facing;
+    ctx.fillStyle = '#555';
+    const hx = f === 1 ? 14 : -20;
+    ctx.fillRect(hx, 14, 6, 12);
+
+    ctx.fillStyle = '#FF1744';
+    ctx.shadowColor = '#FF1744';
+    ctx.shadowBlur = vader.state === 'advance' ? 25 : 15;
+    if (vader.blocking) {
+      // Blocking stance - saber across
+      ctx.fillRect(-18, 8, 36, 4);
+    } else {
+      ctx.fillRect(hx + 1, 14 - 42, 4, 42);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// LEVEL RENDERING
+// ============================================================
+function drawBackground() {
+  // Black background
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Star layers
+  const speeds = [0.1, 0.2, 0.4];
+  const colors = ['#668', '#99b', '#ddf'];
+  for (let layer = 0; layer < 3; layer++) {
+    ctx.fillStyle = colors[layer];
+    stars[layer].forEach(s => {
+      const sx = (s.x - camera.x * speeds[layer]) % W;
+      const x = sx < 0 ? sx + W : sx;
+      ctx.globalAlpha = s.brightness * (0.7 + Math.sin(Date.now() / 1000 + s.x) * 0.3);
+      ctx.fillRect(x, s.y, s.size, s.size);
+    });
+  }
+  ctx.globalAlpha = 1;
+
+  // Distant structures (layer 2)
+  const structOffset = camera.x * 0.3;
+  ctx.fillStyle = '#161622';
+  for (let i = 0; i < 20; i++) {
+    const bx = i * 500 - structOffset % 500;
+    const bh = 60 + (i * 37) % 80;
+    ctx.fillRect(bx, H - 40 - bh, 80 + (i * 23) % 60, bh);
+  }
+
+  // Red accent lights
+  ctx.fillStyle = '#FF1744';
+  ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 500) * 0.1;
+  for (let i = 0; i < 15; i++) {
+    const lx = i * 600 - camera.x * 0.5;
+    if (lx > -20 && lx < W + 20) {
+      ctx.fillRect(lx % W, H - 45, 3, 6);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPlatforms() {
+  platforms.forEach(p => {
+    const sx = p.x - camera.x;
+    if (sx > W + 50 || sx + p.w < -50) return;
+
+    if (p.type === 'ground') {
+      // Metal floor
+      ctx.fillStyle = '#2a2a35';
+      ctx.fillRect(sx, p.y, Math.min(p.w, W + 100), p.h);
+      // Floor line detail
+      ctx.fillStyle = '#3a3a45';
+      ctx.fillRect(sx, p.y, Math.min(p.w, W + 100), 2);
+      // Floor grid lines
+      ctx.strokeStyle = '#333340';
+      ctx.lineWidth = 1;
+      for (let gx = Math.floor(camera.x / 50) * 50; gx < camera.x + W; gx += 50) {
+        const glx = gx - camera.x;
+        ctx.beginPath();
+        ctx.moveTo(glx, p.y);
+        ctx.lineTo(glx, p.y + p.h);
+        ctx.stroke();
+      }
+    } else if (p.type === 'platform') {
+      ctx.fillStyle = '#3a3a48';
+      ctx.fillRect(sx, p.y, p.w, p.h);
+      ctx.fillStyle = '#4a4a58';
+      ctx.fillRect(sx, p.y, p.w, 3);
+      // Support struts
+      ctx.fillStyle = '#2a2a35';
+      ctx.fillRect(sx + 10, p.y + p.h, 4, 20);
+      ctx.fillRect(sx + p.w - 14, p.y + p.h, 4, 20);
+      // Red accent
+      ctx.fillStyle = '#FF1744';
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(sx + p.w / 2 - 10, p.y + 6, 20, 2);
+      ctx.globalAlpha = 1;
+    } else if (p.type === 'wall') {
+      ctx.fillStyle = '#222230';
+      ctx.fillRect(sx, p.y, p.w, p.h);
+    }
+  });
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function drawHUD() {
+  // HP Bar
+  ctx.fillStyle = '#333';
+  ctx.fillRect(10, 10, 200, 18);
+  const hpPct = luke.hp / luke.maxHp;
+  const hpColor = hpPct > 0.5 ? '#4CAF50' : hpPct > 0.25 ? '#FFC107' : '#F44336';
+  ctx.fillStyle = hpColor;
+  ctx.fillRect(10, 10, 200 * hpPct, 18);
+  ctx.strokeStyle = '#FFF';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(10, 10, 200, 18);
+  ctx.fillStyle = '#FFF';
+  ctx.font = '11px Arial';
+  ctx.fillText(`HP: ${luke.hp}/${luke.maxHp}`, 15, 24);
+
+  // Lives (lightsaber icons)
+  for (let i = 0; i < luke.lives; i++) {
+    const lx = 10 + i * 25;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(lx, 34, 3, 10);
+    ctx.fillStyle = '#4FC3F7';
+    ctx.shadowColor = '#4FC3F7';
+    ctx.shadowBlur = 4;
+    ctx.fillRect(lx, 34 - 12, 3, 12);
+    ctx.shadowBlur = 0;
+  }
+
+  // Force Push cooldown
+  const fpPct = 1 - luke.forcePushCooldown / luke.forcePushMaxCooldown;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(10, 52, 60, 10);
+  ctx.fillStyle = fpPct >= 1 ? '#7B1FA2' : '#555';
+  ctx.fillRect(10, 52, 60 * fpPct, 10);
+  ctx.strokeStyle = '#999';
+  ctx.strokeRect(10, 52, 60, 10);
+  ctx.fillStyle = '#CCC';
+  ctx.font = '8px Arial';
+  ctx.fillText('FORCE', 14, 60);
+
+  // Score
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 16px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText(`SCORE: ${score}`, W - 10, 26);
+  ctx.textAlign = 'left';
+
+  // Boss HP bar
+  if (bossActive && vader && vader.alive) {
+    const bw = 400;
+    const bx = (W - bw) / 2;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(bx, 10, bw, 22);
+    ctx.fillStyle = '#FF1744';
+    ctx.fillRect(bx, 10, bw * (vader.hp / vader.maxHp), 22);
+    ctx.strokeStyle = '#FFF';
+    ctx.strokeRect(bx, 10, bw, 22);
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('DARTH VADER', W / 2, 26);
+    ctx.textAlign = 'left';
+  }
+
+  // Controls hint
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '10px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('\u2190 \u2192 Move | Space Jump | Z Attack | X Force Push', W / 2, H - 10);
+  ctx.textAlign = 'left';
+
+  // Checkpoint text
+  if (checkpointText.timer > 0) {
+    checkpointText.timer--;
+    ctx.globalAlpha = Math.min(1, checkpointText.timer / 30);
+    ctx.fillStyle = '#4FC3F7';
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#4FC3F7';
+    ctx.shadowBlur = 10;
+    ctx.fillText(checkpointText.text, W / 2, H / 2 - 20);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Damage flash
+  if (damageFlash > 0) {
+    damageFlash--;
+    ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash / 20})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ============================================================
+// SCREENS
+// ============================================================
+let titleSaberLen = 0;
+let titleTimer = 0;
+
+function drawStartScreen() {
+  titleTimer += 0.016;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  const colors = ['#668', '#99b', '#ddf'];
+  for (let layer = 0; layer < 3; layer++) {
+    ctx.fillStyle = colors[layer];
+    stars[layer].forEach(s => {
+      const x = s.x % W;
+      ctx.globalAlpha = s.brightness * (0.7 + Math.sin(Date.now() / 1000 + s.x) * 0.3);
+      ctx.fillRect(x, s.y, s.size, s.size);
+    });
+  }
+  ctx.globalAlpha = 1;
+
+  // Title
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 64px "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#FFD700';
+  ctx.shadowBlur = 20;
+  ctx.fillText('STAR WARS', W / 2, 180);
+  ctx.shadowBlur = 0;
+
+  // Subtitle
+  ctx.fillStyle = '#4FC3F7';
+  ctx.font = '20px Arial';
+  ctx.fillText('A NEW HOPE \u2014 THE GAME', W / 2, 220);
+
+  // Animated lightsaber
+  titleSaberLen = Math.min(titleSaberLen + 2, 120);
+  const saberX = W / 2;
+  const saberY = 260;
+  // Handle
+  ctx.fillStyle = '#888';
+  ctx.fillRect(saberX - 3, saberY, 6, 20);
+  // Blade
+  ctx.fillStyle = '#4FC3F7';
+  ctx.shadowColor = '#4FC3F7';
+  ctx.shadowBlur = 15;
+  ctx.fillRect(saberX - 2, saberY - titleSaberLen, 4, titleSaberLen);
+  ctx.shadowBlur = 0;
+
+  // Press Enter
+  ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
+  ctx.fillStyle = '#FFF';
+  ctx.font = '18px Arial';
+  ctx.fillText('Press ENTER to Begin', W / 2, 440);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+function drawGameOverScreen() {
+  ctx.fillStyle = 'rgba(30, 0, 0, 0.95)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#FF1744';
+  ctx.font = 'bold 60px "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#FF1744';
+  ctx.shadowBlur = 20;
+  ctx.fillText('GAME OVER', W / 2, 200);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#FFF';
+  ctx.font = '24px Arial';
+  ctx.fillText(`Final Score: ${score}`, W / 2, 280);
+
+  ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
+  ctx.fillStyle = '#FFF';
+  ctx.font = '18px Arial';
+  ctx.fillText('Press ENTER to Retry', W / 2, 380);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+function drawVictoryScreen() {
+  ctx.fillStyle = 'rgba(30, 25, 0, 0.95)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 36px "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#FFD700';
+  ctx.shadowBlur = 20;
+  ctx.fillText('YOU HAVE DEFEATED DARTH VADER', W / 2, 180);
+  ctx.shadowBlur = 0;
+
+  const timeSec = ((gameEndTime - gameStartTime) / 1000).toFixed(1);
+  ctx.fillStyle = '#FFF';
+  ctx.font = '24px Arial';
+  ctx.fillText(`Final Score: ${score}`, W / 2, 260);
+  ctx.fillText(`Time: ${timeSec}s`, W / 2, 300);
+
+  // Animated victory text
+  ctx.fillStyle = '#4FC3F7';
+  ctx.font = '16px Arial';
+  const bounce = Math.sin(Date.now() / 300) * 5;
+  ctx.fillText('The Force is strong with you.', W / 2, 350 + bounce);
+
+  ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
+  ctx.fillStyle = '#FFF';
+  ctx.font = '18px Arial';
+  ctx.fillText('Press ENTER to Play Again', W / 2, 440);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+// ============================================================
+// UTILITY
+// ============================================================
+function rectsOverlap(x1, y1, w1, h1, x2, y2, w2, h2) {
+  return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+}
+
+// ============================================================
+// GAME INIT & LOOP
+// ============================================================
+function initGame() {
+  luke = createLuke();
+  generateStars();
+  buildLevel();
+  spawnEnemies();
+  vader = createVader();
+  projectiles = [];
+  particles = [];
+  score = 0;
+  camera.x = 0;
+  bossActive = false;
+  bossEntrancePlaying = false;
+  bossEntranceTimer = 0;
+  checkpointText = { text: '', timer: 0 };
+  damageFlash = 0;
+  screenShake = 0;
+  gameStartTime = Date.now();
+  startSaberHum();
+}
+
+function update() {
+  if (gameState !== 'playing') return;
+
+  updateLuke();
+  updateEnemies();
+  updateProjectiles();
+  updateParticles();
+  updateVader();
+
+  // Boss trigger
+  if (!bossActive && luke.x > 6200 && vader && vader.alive) {
+    bossActive = true;
+    bossEntrancePlaying = true;
+    bossEntranceTimer = 120;
+    playSound('bossDrone');
+  }
+
+  if (bossEntrancePlaying) {
+    bossEntranceTimer--;
+    if (bossEntranceTimer <= 0) bossEntrancePlaying = false;
+  }
+
+  // Screen shake decay
+  if (screenShake > 0) screenShake--;
+}
+
+function draw() {
+  ctx.save();
+
+  // Screen shake
+  if (screenShake > 0) {
+    const sx = (Math.random() - 0.5) * screenShakeIntensity * 2;
+    const sy = (Math.random() - 0.5) * screenShakeIntensity * 2;
+    ctx.translate(sx, sy);
+  }
+
+  if (gameState === 'start') {
+    drawStartScreen();
+  } else if (gameState === 'playing') {
+    drawBackground();
+    drawPlatforms();
+    drawEnemies();
+    drawProjectiles();
+    drawLuke();
+    drawVader();
+    drawParticles();
+    drawHUD();
+
+    // Boss entrance text
+    if (bossEntrancePlaying) {
+      ctx.globalAlpha = Math.min(1, bossEntranceTimer / 30);
+      ctx.fillStyle = '#FF1744';
+      ctx.font = 'bold 32px "Times New Roman", serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#FF1744';
+      ctx.shadowBlur = 15;
+      ctx.fillText('DARTH VADER', W / 2, H / 2 - 40);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
+  } else if (gameState === 'gameover') {
+    drawGameOverScreen();
+  } else if (gameState === 'victory') {
+    drawVictoryScreen();
+  }
+
+  ctx.restore();
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Input handler for screens
+window.addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    if (gameState === 'start') {
+      initAudio();
+      gameState = 'playing';
+      initGame();
+    } else if (gameState === 'gameover' || gameState === 'victory') {
+      gameState = 'playing';
+      initGame();
+    }
+  }
+});
+
+// Start
+generateStars();
+gameLoop();
+</script>
+</body>
+</html>
