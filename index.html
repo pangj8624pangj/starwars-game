@@ -833,7 +833,7 @@ function updateProjectiles() {
         if (!e.alive || e.dying) continue;
         if (px2 > e.x && px1 < e.x + e.w && py2 > e.y && py1 < e.y + e.h) {
           damageEnemy(e, p.damage);
-          spawnParticles(p.x, p.y, '#4FC3F7', 10, 4);
+          spawnParticles(p.x, p.y, '#66BB6A', 10, 4);
           playSound('hit');
           projectiles.splice(i, 1);
           removed = true;
@@ -845,7 +845,7 @@ function updateProjectiles() {
         if (px2 > vader.x && px1 < vader.x + vader.w && py2 > vader.y && py1 < vader.y + vader.h) {
           if (!vader.blocking) {
             damageVader(p.damage);
-            spawnParticles(p.x, p.y, '#4FC3F7', 10, 4);
+            spawnParticles(p.x, p.y, '#66BB6A', 10, 4);
           } else {
             spawnParticles(p.x, p.y, '#FF1744', 6, 3);
             playSound('parry');
@@ -1139,8 +1139,8 @@ function updateLuke() {
         p.owner = 'player';
         p.startX = p.x;
         p.damage = Math.floor(p.damage * 1.5);
-        p.color = '#4FC3F7';
-        spawnParticles(p.x, p.y, '#4FC3F7', 6, 3);
+        p.color = '#66BB6A';
+        spawnParticles(p.x, p.y, '#66BB6A', 6, 3);
         playSound('parry');
         screenShake = 3;
         screenShakeIntensity = 2;
@@ -1201,7 +1201,7 @@ function performForcePush() {
   const cx = luke.x + luke.w / 2;
   const cy = luke.y + luke.h / 2;
   const radius = 120;
-  spawnParticles(cx, cy, '#4FC3F7', 20, 5);
+  spawnParticles(cx, cy, '#66BB6A', 20, 5);
 
   enemies.forEach(e => {
     if (!e.alive) return;
@@ -1421,12 +1421,12 @@ function drawLuke() {
   const saberLen = luke.attacking ? 45 : 35;
   ctx.save();
   // Multi-layer glow effect
-  ctx.shadowColor = '#4FC3F7';
+  ctx.shadowColor = '#66BB6A';
   ctx.shadowBlur = luke.attacking ? 30 : 15;
   // Ambient light on Luke
-  ctx.fillStyle = 'rgba(79, 195, 247, 0.05)';
+  ctx.fillStyle = 'rgba(102, 187, 106, 0.05)';
   ctx.fillRect(-14, 0, 28, luke.h);
-  ctx.fillStyle = '#4FC3F7';
+  ctx.fillStyle = '#66BB6A';
 
   // Handle
   ctx.fillStyle = '#888';
@@ -1435,14 +1435,14 @@ function drawLuke() {
 
   // Blade
   ctx.globalAlpha = saberGlow;
-  ctx.fillStyle = '#4FC3F7';
+  ctx.fillStyle = '#66BB6A';
   if (luke.blocking) {
     // Blocking stance - saber held horizontally across body
     ctx.globalAlpha = 0.9;
     ctx.fillRect(-16, 10, 32, 4);
     // Shield glow effect
     ctx.globalAlpha = 0.15 + Math.sin(Date.now() / 100) * 0.08;
-    ctx.fillStyle = '#4FC3F7';
+    ctx.fillStyle = '#66BB6A';
     ctx.beginPath();
     ctx.arc(0, luke.h / 2, 22, 0, Math.PI * 2);
     ctx.fill();
@@ -2311,7 +2311,7 @@ function updateVader() {
         screenShakeIntensity = 3;
       } else if (luke.blocking) {
         vader.attackHitbox = false;
-        spawnParticles(luke.x + luke.w / 2, luke.y + 10, '#4FC3F7', 8, 3);
+        spawnParticles(luke.x + luke.w / 2, luke.y + 10, '#66BB6A', 8, 3);
         playSound('parry');
         damageLuke(10);
         screenShake = 4;
