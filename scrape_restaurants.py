@@ -13,6 +13,8 @@ Output:
     restaurants.txt  - simple list of unique restaurant names
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
