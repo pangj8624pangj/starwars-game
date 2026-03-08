@@ -195,6 +195,7 @@ let saberHumGain = null;
 
 let marchPlaying = false;
 let marchInterval = null;
+let marchOscillators = [];
 
 function initAudio() {
   if (audioCtx) return;
@@ -249,6 +250,7 @@ function playImperialMarch() {
         g.gain.linearRampToValueAtTime(0, t + note.d * tempo);
         o.connect(g); g.connect(masterGain);
         o.start(t); o.stop(t + note.d * tempo);
+        marchOscillators.push(o);
         // Harmony voice (one octave lower, quieter)
         const o2 = audioCtx.createOscillator();
         const g2 = audioCtx.createGain();
@@ -259,6 +261,7 @@ function playImperialMarch() {
         g2.gain.linearRampToValueAtTime(0, t + note.d * tempo);
         o2.connect(g2); g2.connect(masterGain);
         o2.start(t); o2.stop(t + note.d * tempo);
+        marchOscillators.push(o2);
       }
       t += note.d * tempo;
     });
@@ -277,6 +280,8 @@ function playImperialMarch() {
 function stopImperialMarch() {
   marchPlaying = false;
   if (marchInterval) { clearTimeout(marchInterval); marchInterval = null; }
+  marchOscillators.forEach(o => { try { o.stop(); } catch(_) {} });
+  marchOscillators = [];
 }
 
 function startSaberHum() {
