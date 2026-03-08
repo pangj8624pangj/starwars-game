@@ -116,16 +116,58 @@ canvas {
   border-color: rgba(255,109,0,0.4) !important;
 }
 .btn-speed.active { background: rgba(255,109,0,0.4) !important; }
+.btn-pause {
+  width: 40px; height: 40px;
+  top: 10px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  background: rgba(255,255,255,0.06) !important;
+  border-color: rgba(255,255,255,0.15) !important;
+}
+#orientation-prompt {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.95);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #FFD700;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+#orientation-prompt .rotate-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  animation: rotate-nudge 1.5s ease-in-out infinite;
+}
+@keyframes rotate-nudge {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+#orientation-prompt p {
+  font-size: 18px;
+  color: #fff;
+  margin-top: 10px;
+}
 </style>
 </head>
 <body>
 <canvas id="game" width="960" height="540"></canvas>
+<div id="orientation-prompt">
+  <div class="rotate-icon">&#128241;</div>
+  <div style="font-size:24px;color:#FFD700;font-weight:bold;">Rotate Your Device</div>
+  <p>This game plays best in landscape mode</p>
+</div>
 <div id="touch-controls">
   <div class="btn dpad-left" data-key="ArrowLeft">&#9664;</div>
   <div class="btn dpad-right" data-key="ArrowRight">&#9654;</div>
   <div class="btn btn-jump" data-key="Space">JUMP</div>
   <div class="btn btn-attack" data-key="KeyZ">ATK</div>
   <div class="btn btn-block" data-key="KeyA">BLK</div>
+  <div class="btn btn-pause" id="btn-pause">| |</div>
   <div class="btn btn-push" data-key="KeyX">PUSH</div>
   <div class="btn btn-pull" data-key="KeyC">PULL</div>
   <div class="btn btn-speed" data-key="KeyS">SPD</div>
@@ -578,6 +620,9 @@ window.addEventListener('keydown', e => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyX', 'KeyA', 'KeyC', 'KeyS'].includes(e.code)) {
     e.preventDefault();
   }
+  if (e.code === 'Escape' && gameState === 'playing') {
+    paused = !paused;
+  }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -592,6 +637,7 @@ function pressButton(btn) {
   if (!btn || !btn.dataset.key) return;
   keys[btn.dataset.key] = true;
   btn.classList.add('active');
+  haptic(15);
 }
 
 function releaseButton(btn) {
@@ -605,9 +651,23 @@ function releaseAllTouches() {
   activeTouches.clear();
 }
 
+// Haptic feedback helper
+function haptic(ms) {
+  if (navigator.vibrate) navigator.vibrate(ms);
+}
+
 if (isTouchDevice) {
   touchControls.style.display = 'block';
   document.body.style.touchAction = 'none';
+
+  // Landscape orientation prompt
+  const orientationPrompt = document.getElementById('orientation-prompt');
+  function checkOrientation() {
+    const isPortrait = window.innerHeight > window.innerWidth;
+    orientationPrompt.style.display = isPortrait ? 'flex' : 'none';
+  }
+  checkOrientation();
+  window.addEventListener('resize', checkOrientation);
 
   const touchButtons = document.querySelectorAll('#touch-controls .btn');
 
@@ -652,7 +712,16 @@ if (isTouchDevice) {
     if (document.hidden) releaseAllTouches();
   });
 
-  // Tap on canvas to start/restart
+  // Pause button
+  document.getElementById('btn-pause').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (gameState === 'playing') {
+      paused = !paused;
+      haptic(15);
+    }
+  }, { passive: false });
+
+  // Tap on canvas to start/restart or unpause
   canvas.addEventListener('touchstart', e => {
     if (gameState === 'start' || gameState === 'gameover' || gameState === 'victory') {
       e.preventDefault();
@@ -664,6 +733,7 @@ if (isTouchDevice) {
 // GAME STATE
 // ============================================================
 let gameState = 'start'; // start, playing, gameover, victory
+let paused = false;
 let camera = { x: 0 };
 let score = 0;
 let gameStartTime = 0;
@@ -1185,6 +1255,7 @@ function damageLuke(amount) {
   screenShake = 8;
   screenShakeIntensity = 4;
   playSound('hit');
+  haptic([50, 30, 80]);
   // Track section damage
   const section = luke.x < 2500 ? 0 : luke.x < 5000 ? 1 : luke.x < 7000 ? 2 : luke.x < 9500 ? 3 : luke.x < 10500 ? 4 : 5;
   if (section < luke.sectionDamage.length) luke.sectionDamage[section] = true;
@@ -1692,14 +1763,29 @@ function damageEnemy(e, amount) {
 
   if (e.hp <= 0) {
     e.dying = true;
-    e.deathTimer = 30;
+    e.deathTimer = 45;
+    e.deathRotation = 0;
+    e.deathVy = -3;
+    e.deathVx = (e.x > luke.x ? 1 : -1) * (2 + Math.random() * 2);
     score += e.points * luke.comboMultiplier;
+    haptic(30);
+    // Death particles per type
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
     if (e.type === 'atst') {
       playSound('explosion');
-      spawnParticles(e.x + e.w/2, e.y + e.h/2, '#FF6D00', 30, 6);
-      spawnParticles(e.x + e.w/2, e.y + e.h/2, '#FFF', 15, 5);
+      spawnParticles(cx, cy, '#FF6D00', 30, 6);
+      spawnParticles(cx, cy, '#FFF', 15, 5);
       screenShake = 20;
       screenShakeIntensity = 8;
+    } else if (e.type === 'probe') {
+      playSound('explosion');
+      spawnParticles(cx, cy, '#FF6D00', 15, 4);
+      spawnParticles(cx, cy, '#888', 8, 3);
+      screenShake = 5;
+      screenShakeIntensity = 3;
+    } else {
+      spawnParticles(cx, cy, '#FFF', 8, 3);
+      spawnParticles(cx, cy, '#888', 5, 2);
     }
   }
 }
@@ -1709,9 +1795,16 @@ function updateEnemies() {
     if (!e.alive) return;
     if (e.dying) {
       e.deathTimer--;
-      if (e.type === 'stormtrooper') {
-        e.slideVx *= 0.95;
-        e.x += e.slideVx;
+      // Physics-based death animation
+      if (e.type !== 'turret') {
+        e.deathVy = (e.deathVy || 0) + 0.4;
+        e.x += (e.deathVx || 0);
+        e.y += e.deathVy;
+        e.deathRotation = (e.deathRotation || 0) + (e.deathVx > 0 ? 0.1 : -0.1);
+      }
+      // Disintegration particles in final frames
+      if (e.deathTimer === 15 || e.deathTimer === 8) {
+        spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#888', 4, 2);
       }
       if (e.deathTimer <= 0) e.alive = false;
       return;
@@ -1840,7 +1933,11 @@ function drawEnemies() {
     const sx = e.x - camera.x;
 
     if (e.dying) {
-      ctx.globalAlpha = e.deathTimer / 30;
+      ctx.globalAlpha = Math.min(1, e.deathTimer / 20);
+      // Red tint flash on death
+      if (e.deathTimer > 30 && Math.floor(e.deathTimer / 2) % 2 === 0) {
+        ctx.globalAlpha *= 0.6;
+      }
     }
     if (e.flashTimer > 0) {
       e.flashTimer--;
@@ -1850,6 +1947,14 @@ function drawEnemies() {
     // White flash on hit
     if (e.hitFlashWhite > 0) {
       ctx.globalCompositeOperation = 'source-atop';
+    }
+
+    // Apply rotation for dying enemies
+    if (e.dying && e.type !== 'turret') {
+      ctx.save();
+      ctx.translate(sx + e.w / 2, e.y + e.h / 2);
+      ctx.rotate(e.deathRotation || 0);
+      ctx.translate(-(sx + e.w / 2), -(e.y + e.h / 2));
     }
 
     if (e.type === 'stormtrooper') {
@@ -1864,6 +1969,10 @@ function drawEnemies() {
       drawProbeDroid(sx, e.y, e.facing);
     } else if (e.type === 'atst') {
       drawATST(sx, e.y, e.facing, e.walkFrame);
+    }
+
+    if (e.dying && e.type !== 'turret') {
+      ctx.restore();
     }
 
     ctx.globalCompositeOperation = 'source-over';
@@ -2874,6 +2983,41 @@ function drawHUD() {
     ctx.textAlign = 'left';
   }
 
+  // Progress bar
+  const progBarW = 200;
+  const progBarH = 6;
+  const progBarX = (W - progBarW) / 2;
+  const progBarY = H - (isTouchDevice ? 8 : 22);
+  const progress = Math.min(1, luke.x / LEVEL_WIDTH);
+  // Background
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.fillRect(progBarX, progBarY, progBarW, progBarH);
+  // Filled portion
+  ctx.fillStyle = 'rgba(255,215,0,0.5)';
+  ctx.fillRect(progBarX, progBarY, progBarW * progress, progBarH);
+  // Section markers
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  const sections = [2500, 5000, 7000, 9500, 10500];
+  sections.forEach(s => {
+    const sx = progBarX + (s / LEVEL_WIDTH) * progBarW;
+    ctx.fillRect(sx, progBarY - 1, 1, progBarH + 2);
+  });
+  // Border
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(progBarX, progBarY, progBarW, progBarH);
+  // Player dot
+  const dotX = progBarX + progress * progBarW;
+  ctx.fillStyle = '#66BB6A';
+  ctx.shadowColor = '#66BB6A';
+  ctx.shadowBlur = 4;
+  ctx.fillRect(dotX - 2, progBarY - 2, 4, progBarH + 4);
+  ctx.shadowBlur = 0;
+  // Boss marker
+  ctx.fillStyle = '#FF1744';
+  const bossX = progBarX + (10700 / LEVEL_WIDTH) * progBarW;
+  ctx.fillRect(bossX - 1, progBarY - 2, 3, progBarH + 4);
+
   // Controls hint
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.font = '10px Arial';
@@ -3057,7 +3201,7 @@ function initGame() {
 }
 
 function update() {
-  if (gameState !== 'playing') return;
+  if (gameState !== 'playing' || paused) return;
 
   updateLuke();
   updateEnemies();
@@ -3126,6 +3270,25 @@ function draw() {
     drawVictoryScreen();
   }
 
+  // Pause overlay
+  if (paused && gameState === 'playing') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 48px "Times New Roman", serif';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 15;
+    ctx.fillText('PAUSED', W / 2, H / 2 - 30);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = '16px Arial';
+    ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 400) * 0.5;
+    ctx.fillText(isTouchDevice ? 'Tap pause to resume' : 'Press ESC to resume', W / 2, H / 2 + 20);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
   ctx.restore();
 }
 
@@ -3145,6 +3308,7 @@ function startOrRestartGame() {
     return;
   }
   gameState = 'playing';
+  paused = false;
   initGame();
   playImperialMarch();
 }
